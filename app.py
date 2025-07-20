@@ -1,86 +1,346 @@
 import streamlit as st
-import requests
-import json
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import pandas as pd
+import json
 from datetime import datetime
 from saude_api import SaudeApi
+from acs_analyzer import ACSAnalyzer, ACSMetrics
+from competencias_manager import CompetenciasManager
 
 # Configuração da página
 st.set_page_config(
-    page_title="Consulta API Ministério da Saúde",
+    page_title="Dashboard ACS - Relatório Completo",
     page_icon="🏥",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-st.title("🏥 Consulta de Financiamento APS - Ministério da Saúde")
-st.markdown("Sistema para consulta de dados de financiamento da Atenção Primária à Saúde por município")
-
-# URL da API do Ministério da Saúde
-API_SAUDE_URL = "https://relatorioaps-prd.saude.gov.br/financiamento/pagamento"
-
-def fazer_requisicao_saude(codigo_uf: str, codigo_municipio: str, parcela_inicio: str, parcela_fim: str, tipo_relatorio: str = "COMPLETO"):
-    """
-    Faz requisição para a API do Ministério da Saúde com headers corretos
-    """
-    params = {
-        "unidadeGeografica": "MUNICIPIO",
-        "coUf": codigo_uf,
-        "coMunicipio": codigo_municipio,
-        "nuParcelaInicio": parcela_inicio,
-        "nuParcelaFim": parcela_fim,
-        "tipoRelatorio": tipo_relatorio
+# CSS customizado para cards mais claros
+st.markdown("""
+<style>
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 1rem;
+        color: white;
+        margin: 0.5rem 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
-    
-    # Headers necessários baseados na requisição original
-    headers = {
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Encoding': 'gzip, deflate, br, zstd',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Host': 'relatorioaps-prd.saude.gov.br',
-        'Origin': 'https://relatorioaps.saude.gov.br',
-        'Pragma': 'no-cache',
-        'Referer': 'https://relatorioaps.saude.gov.br/',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-site',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"'
+    .metric-card.green {
+        background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
     }
+    .metric-card.yellow {
+        background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+    }
+    .metric-card.red {
+        background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+    }
+    .metric-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        opacity: 0.9;
+    }
+    .metric-value {
+        font-size: 2.2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+    .metric-subtitle {
+        font-size: 0.9rem;
+        opacity: 0.8;
+    }
+    .progress-container {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+def create_metric_card(title: str, value: str, subtitle: str, color_class: str = ""):
+    """Cria um card de métrica mais visual"""
+    return f"""
+    <div class="metric-card {color_class}">
+        <div class="metric-title">{title}</div>
+        <div class="metric-value">{value}</div>
+        <div class="metric-subtitle">{subtitle}</div>
+    </div>
+    """
+
+def format_currency(value: float) -> str:
+    """Formata valor monetário"""
+    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+def format_number(value: int) -> str:
+    """Formata número inteiro"""
+    return f"{value:,}".replace(',', '.')
+
+def create_main_metrics_cards(metrics: ACSMetrics):
+    """Cria os 6 cards principais das métricas solicitadas"""
     
-    try:
-        with st.spinner("Fazendo requisição..."):
-            st.info(f"Consultando: UF={codigo_uf}, Município={codigo_municipio}, Período={parcela_inicio}-{parcela_fim}")
-            response = requests.get(API_SAUDE_URL, params=params, headers=headers, timeout=30)
-            
-            # Debug da resposta
-            st.write(f"Status: {response.status_code}")
-            
-            if response.status_code == 200:
-                dados = response.json()
-                if dados:
-                    return dados
-                else:
-                    st.warning("API retornou dados vazios. Verifique se o município possui dados para o período selecionado.")
-                    return None
-            else:
-                st.error(f"Erro HTTP {response.status_code}: {response.text}")
-                return None
-                
-    except requests.RequestException as e:
-        st.error(f"Erro na requisição: {e}")
+    st.subheader("📊 As 6 Métricas Principais de ACS")
+    
+    # Primeira linha - Quantidades
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        color = "green" if metrics.quantidade_teto > 0 else "red"
+        card_html = create_metric_card(
+            "🎯 Quantidade Teto",
+            format_number(metrics.quantidade_teto),
+            "Limite máximo de ACS aprovado",
+            color
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+    
+    with col2:
+        ocupacao = (metrics.quantidade_credenciado / metrics.quantidade_teto * 100) if metrics.quantidade_teto > 0 else 0
+        color = "green" if ocupacao >= 90 else "yellow" if ocupacao >= 75 else "red"
+        card_html = create_metric_card(
+            "✅ ACS Credenciados", 
+            format_number(metrics.quantidade_credenciado),
+            f"{ocupacao:.1f}% do teto ocupado",
+            color
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+    
+    with col3:
+        eficiencia = (metrics.quantidade_pago / metrics.quantidade_credenciado * 100) if metrics.quantidade_credenciado > 0 else 0
+        color = "green" if eficiencia >= 95 else "yellow" if eficiencia >= 85 else "red"
+        card_html = create_metric_card(
+            "💰 ACS Pagos",
+            format_number(metrics.quantidade_pago),
+            f"{eficiencia:.1f}% dos credenciados pagos",
+            color
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+    
+    # Segunda linha - Valores Financeiros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        color = "green" if metrics.total_deveria_receber > 0 else "red"
+        card_html = create_metric_card(
+            "🎯 Repasse Federal Esperado",
+            format_currency(metrics.total_deveria_receber),
+            "Valor estimado baseado no teto de ACS",
+            color
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+    
+    with col2:
+        # Verde se recebeu próximo ao esperado, vermelho se recebeu muito menos
+        eficiencia_repasse = (metrics.total_recebido / metrics.total_deveria_receber * 100) if metrics.total_deveria_receber > 0 else 0
+        color = "green" if eficiencia_repasse >= 95 else "yellow" if eficiencia_repasse >= 85 else "red"
+        
+        card_html = create_metric_card(
+            "💵 Repasse Federal Recebido",
+            format_currency(metrics.total_recebido),
+            f"Efetividade: {eficiencia_repasse:.1f}% do esperado",
+            color
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+    
+    with col3:
+        # Para repasses federais, valores menores sempre são perdas para o município
+        perda_absoluta = max(0, metrics.total_perda)  # Perda nunca é negativa
+        perda_perc = abs(metrics.percentual_perda)
+        
+        # Cores baseadas no nível de perda (verde = pouca perda, vermelho = muita perda)
+        color = "green" if perda_perc <= 5 else "yellow" if perda_perc <= 15 else "red"
+        
+        card_html = create_metric_card(
+            "📉 Perda de Repasse Federal",
+            format_currency(perda_absoluta),
+            f"{perda_perc:.1f}% de perda dos recursos federais",
+            color
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+
+def create_summary_chart(metrics: ACSMetrics):
+    """Gráfico de barras das quantidades"""
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        name='Teto',
+        x=['ACS'],
+        y=[metrics.quantidade_teto],
+        marker_color='#2E86AB',
+        text=[format_number(metrics.quantidade_teto)],
+        textposition='auto',
+        width=0.6
+    ))
+    
+    fig.add_trace(go.Bar(
+        name='Credenciados',
+        x=['ACS'],
+        y=[metrics.quantidade_credenciado],
+        marker_color='#A23B72',
+        text=[format_number(metrics.quantidade_credenciado)],
+        textposition='auto',
+        width=0.4
+    ))
+    
+    fig.add_trace(go.Bar(
+        name='Pagos',
+        x=['ACS'],
+        y=[metrics.quantidade_pago],
+        marker_color='#F18F01',
+        text=[format_number(metrics.quantidade_pago)],
+        textposition='auto',
+        width=0.2
+    ))
+    
+    fig.update_layout(
+        title="📊 Resumo Quantitativo - ACS",
+        yaxis_title="Quantidade",
+        barmode='overlay',
+        height=400,
+        showlegend=True
+    )
+    
+    return fig
+
+def create_financial_chart(metrics: ACSMetrics):
+    """Gráfico de barras dos valores financeiros"""
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=['Valores'],
+        y=[metrics.total_deveria_receber],
+        name='Deveria Receber',
+        marker_color='#4CAF50',
+        text=[format_currency(metrics.total_deveria_receber)],
+        textposition='auto',
+        width=0.6
+    ))
+    
+    fig.add_trace(go.Bar(
+        x=['Valores'],
+        y=[metrics.total_recebido],
+        name='Total Recebido',
+        marker_color='#2196F3',
+        text=[format_currency(metrics.total_recebido)],
+        textposition='auto',
+        width=0.4
+    ))
+    
+    # Sempre mostra a perda (diferença entre esperado e recebido)
+    perda_absoluta = max(0, metrics.total_perda)
+    if perda_absoluta > 0:
+        fig.add_trace(go.Bar(
+            x=['Valores'],
+            y=[perda_absoluta],
+            name='Perda de Repasse',
+            marker_color='#F44336',
+            text=[format_currency(perda_absoluta)],
+            textposition='auto',
+            width=0.2
+        ))
+    
+    fig.update_layout(
+        title="💰 Repasses Federais - Esperado vs Recebido",
+        yaxis_title="Valor (R$)",
+        barmode='overlay',
+        height=400,
+        showlegend=True
+    )
+    
+    return fig
+
+def consultar_multiplas_competencias(codigo_uf: str, codigo_municipio: str):
+    """Consulta múltiplas competências e retorna dados consolidados"""
+    
+    manager = CompetenciasManager()
+    competencias = manager.get_competencias_disponiveis(2025)
+    
+    st.info(f"🔍 Consultando {len(competencias)} competências para obter relatório completo...")
+    
+    # Progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    def update_progress(progress, message):
+        progress_bar.progress(progress)
+        status_text.text(message)
+    
+    # Consulta múltiplas competências
+    resultados = manager.consultar_multiplas_competencias(
+        codigo_uf, codigo_municipio, competencias, update_progress
+    )
+    
+    # Consolida dados
+    dados_consolidados = manager.consolidar_dados_acs(resultados)
+    metricas_temporais = manager.extrair_metricas_por_competencia(dados_consolidados)
+    
+    # Remove progress bar
+    progress_bar.empty()
+    status_text.empty()
+    
+    return dados_consolidados, metricas_temporais, resultados
+
+def create_temporal_chart(metricas_temporais: list):
+    """Gráfico temporal das 6 métricas"""
+    
+    if not metricas_temporais:
         return None
-    except json.JSONDecodeError as e:
-        st.error(f"Erro ao decodificar JSON: {e}")
-        st.write("Resposta recebida:", response.text[:500] + "..." if len(response.text) > 500 else response.text)
-        return None
+    
+    df = pd.DataFrame(metricas_temporais)
+    
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=('Quantidades', 'Eficiência (%)', 'Valores Financeiros (R$)', 'Taxa de Perda (%)'),
+        specs=[[{"secondary_y": False}, {"secondary_y": False}],
+               [{"secondary_y": False}, {"secondary_y": False}]]
+    )
+    
+    # Gráfico 1: Quantidades
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=df['quantidade_teto'], 
+                            name='Teto', line=dict(color='#2E86AB', width=3)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=df['quantidade_credenciado'], 
+                            name='Credenciados', line=dict(color='#A23B72', width=3)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=df['quantidade_pago'], 
+                            name='Pagos', line=dict(color='#F18F01', width=3)), row=1, col=1)
+    
+    # Gráfico 2: Eficiência
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=df['taxa_ocupacao'], 
+                            name='Taxa Ocupação', line=dict(color='#4CAF50', width=3)), row=1, col=2)
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=df['eficiencia'], 
+                            name='Eficiência', line=dict(color='#FF9800', width=3)), row=1, col=2)
+    
+    # Gráfico 3: Valores (repasses federais)
+    repasse_esperado = df.get('repasse_esperado', df.get('total_deveria_receber', []))
+    repasse_recebido = df.get('repasse_recebido', df.get('total_recebido', []))
+    
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=repasse_esperado, 
+                            name='Repasse Esperado', line=dict(color='#2196F3', width=3)), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=repasse_recebido, 
+                            name='Repasse Recebido', line=dict(color='#9C27B0', width=3)), row=2, col=1)
+    
+    # Gráfico 4: Perda de repasse
+    perda_percentual = df.get('percentual_perda_repasse', df.get('percentual_perda', []))
+    fig.add_trace(go.Scatter(x=df['competencia_formatada'], y=perda_percentual, 
+                            name='% Perda Repasse', line=dict(color='#F44336', width=3)), row=2, col=2)
+    
+    fig.update_layout(height=800, title_text="📈 Evolução Temporal das Métricas de ACS")
+    
+    return fig
 
 def main():
-    # Sidebar com configurações
-    st.sidebar.header("⚙️ Configurações")
+    # Cabeçalho
+    st.title("🏥 Dashboard ACS - Relatório Completo por Competências")
+    st.markdown("**Sistema de análise temporal completo dos Agentes Comunitários de Saúde**")
+    
+    st.markdown("---")
+    
+    # Interface de seleção
+    st.subheader("🔍 Configuração da Consulta")
     
     # Carregamento das UFs
     ufs = SaudeApi.get_ufs()
@@ -90,8 +350,11 @@ def main():
         return
     
     # Seleção da UF
-    uf_options = ["Selecione um estado..."] + [SaudeApi.formatar_uf_para_dropdown(uf) for uf in ufs]
-    uf_selecionada = st.sidebar.selectbox("🗺️ Estado (UF)", uf_options)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        uf_options = ["Selecione um estado..."] + [SaudeApi.formatar_uf_para_dropdown(uf) for uf in ufs]
+        uf_selecionada = st.selectbox("🗺️ Estado (UF)", uf_options)
     
     municipio_selecionado = None
     codigo_uf = None
@@ -102,152 +365,168 @@ def main():
         codigo_uf = SaudeApi.extrair_codigo_uf(uf_selecionada, ufs)
         
         if codigo_uf:
-            # Carregamento dos municípios
-            municipios = SaudeApi.get_municipios_por_uf(codigo_uf)
-            
-            if municipios:
-                municipio_options = ["Selecione um município..."] + [SaudeApi.formatar_municipio_para_dropdown(municipio) for municipio in municipios]
-                municipio_selecionado = st.sidebar.selectbox("🏘️ Município", municipio_options)
+            with col2:
+                # Carregamento dos municípios
+                municipios = SaudeApi.get_municipios_por_uf(codigo_uf)
                 
-                if municipio_selecionado != "Selecione um município...":
-                    codigo_municipio = SaudeApi.extrair_codigo_municipio(municipio_selecionado, municipios)
+                if municipios:
+                    municipio_options = ["Selecione um município..."] + [SaudeApi.formatar_municipio_para_dropdown(municipio) for municipio in municipios]
+                    municipio_selecionado = st.selectbox("🏘️ Município", municipio_options)
+                    
+                    if municipio_selecionado != "Selecione um município...":
+                        codigo_municipio = SaudeApi.extrair_codigo_municipio(municipio_selecionado, municipios)
     
-    # Configurações de período
-    st.sidebar.subheader("📅 Período")
-    
-    # Carrega anos disponíveis
-    anos_disponiveis = SaudeApi.get_anos_disponiveis()
-    
-    if anos_disponiveis:
-        # Campos de período com anos válidos
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            ano_inicio = st.selectbox("Ano início", anos_disponiveis, index=0 if anos_disponiveis else 0)
-            mes_inicio = st.number_input("Mês início", min_value=1, max_value=12, value=1)
-        
-        with col2:
-            ano_fim = st.selectbox("Ano fim", anos_disponiveis, index=0 if anos_disponiveis else 0)
-            mes_fim = st.number_input("Mês fim", min_value=1, max_value=12, value=12)
-        
-        # Mostra parcelas disponíveis se um ano estiver selecionado
-        if ano_inicio:
-            parcelas_inicio = SaudeApi.get_parcelas_por_ano(ano_inicio)
-            if parcelas_inicio:
-                st.sidebar.info(f"📊 {len(parcelas_inicio)} parcelas disponíveis em {ano_inicio}")
-    else:
-        # Fallback para campos manuais
-        ano_atual = datetime.now().year
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            ano_inicio = st.number_input("Ano início", min_value=2020, max_value=ano_atual, value=ano_atual)
-            mes_inicio = st.number_input("Mês início", min_value=1, max_value=12, value=1)
-        
-        with col2:
-            ano_fim = st.number_input("Ano fim", min_value=2020, max_value=ano_atual, value=ano_atual)
-            mes_fim = st.number_input("Mês fim", min_value=1, max_value=12, value=12)
-    
-    # Formatação das parcelas
-    parcela_inicio = f"{ano_inicio}{mes_inicio:02d}"
-    parcela_fim = f"{ano_fim}{mes_fim:02d}"
-    
-    # Tipo de relatório
-    tipo_relatorio = st.sidebar.selectbox("📊 Tipo de Relatório", ["COMPLETO", "RESUMIDO"])
-    
-    # Área principal
+    # Botão de consulta
     if codigo_uf and codigo_municipio:
         st.success(f"✅ Configurado: {uf_selecionada} → {municipio_selecionado}")
         
-        # Informações da requisição
-        with st.expander("ℹ️ Detalhes da Requisição"):
-            st.write(f"**Estado:** {uf_selecionada} (Código: {codigo_uf})")
-            st.write(f"**Município:** {municipio_selecionado} (Código: {codigo_municipio})")
-            st.write(f"**Período:** {parcela_inicio} até {parcela_fim}")
-            st.write(f"**Tipo:** {tipo_relatorio}")
-        
-        # Botão para fazer requisição
-        if st.button("🚀 Consultar Dados", type="primary", use_container_width=True):
-            dados = fazer_requisicao_saude(codigo_uf, codigo_municipio, parcela_inicio, parcela_fim, tipo_relatorio)
+        if st.button("🚀 Gerar Relatório Completo de ACS", type="primary", use_container_width=True):
             
-            if dados:
-                st.success("✅ Dados obtidos com sucesso!")
+            # Consulta múltiplas competências
+            dados_consolidados, metricas_temporais, resultados = consultar_multiplas_competencias(codigo_uf, codigo_municipio)
+            
+            if metricas_temporais:
+                st.markdown("---")
                 
-                # Tabs para visualização
-                tab1, tab2, tab3 = st.tabs(["📊 Dados", "🔍 JSON", "⬇️ Download"])
+                # Usa a primeira métrica para o cabeçalho
+                primeira_metrica = metricas_temporais[0]
+                st.header(f"📊 {municipio_selecionado} - {uf_selecionada.split(' - ')[0]}")
+                st.caption(f"Relatório gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')} | {len(metricas_temporais)} competências analisadas")
                 
-                with tab1:
-                    st.subheader("Dados Retornados")
-                    
-                    # Se for uma lista, mostra como DataFrame
-                    if isinstance(dados, list) and dados:
-                        df = pd.DataFrame(dados)
-                        st.dataframe(df, use_container_width=True)
-                        st.info(f"Total de registros: {len(dados)}")
-                    elif isinstance(dados, dict):
-                        # Se for dict, tenta mostrar as chaves principais
-                        for key, value in dados.items():
-                            if isinstance(value, (list, dict)):
-                                st.write(f"**{key}:** {type(value).__name__}")
-                                if isinstance(value, list) and value:
-                                    st.write(f"  - {len(value)} itens")
-                            else:
-                                st.write(f"**{key}:** {value}")
-                    else:
-                        st.write("Dados recebidos em formato não tabelar")
+                # Cria métricas consolidadas (média/última competência)
+                ultima_competencia = metricas_temporais[-1]
+                metrics_consolidadas = ACSMetrics(
+                    estado=uf_selecionada.split(' - ')[0],
+                    municipio=municipio_selecionado,
+                    codigo_uf=codigo_uf,
+                    codigo_municipio=codigo_municipio,
+                    quantidade_teto=ultima_competencia['quantidade_teto'],
+                    quantidade_credenciado=ultima_competencia['quantidade_credenciado'],
+                    quantidade_pago=ultima_competencia['quantidade_pago'],
+                    total_deveria_receber=sum(m.get('repasse_esperado', m.get('total_deveria_receber', 0)) for m in metricas_temporais),
+                    total_recebido=sum(m.get('repasse_recebido', m.get('total_recebido', 0)) for m in metricas_temporais),
+                    total_perda=sum(m.get('perda_repasse', m.get('total_perda', 0)) for m in metricas_temporais),
+                    taxa_ocupacao=ultima_competencia['taxa_ocupacao'],
+                    taxa_pagamento=ultima_competencia['taxa_pagamento'],
+                    eficiencia=ultima_competencia['eficiencia'],
+                    percentual_perda=sum(m.get('perda_repasse', m.get('total_perda', 0)) for m in metricas_temporais) / sum(m.get('repasse_esperado', m.get('total_deveria_receber', 1)) for m in metricas_temporais) * 100 if sum(m.get('repasse_esperado', m.get('total_deveria_receber', 1)) for m in metricas_temporais) > 0 else 0
+                )
                 
-                with tab2:
-                    st.subheader("JSON Completo")
-                    st.json(dados)
+                # Cards principais
+                create_main_metrics_cards(metrics_consolidadas)
                 
-                with tab3:
-                    st.subheader("Download dos Dados")
-                    
-                    # Prepara o JSON para download
-                    json_string = json.dumps(dados, indent=2, ensure_ascii=False)
-                    
-                    # Nome do arquivo
+                st.markdown("---")
+                
+                # Gráficos resumo
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    fig_summary = create_summary_chart(metrics_consolidadas)
+                    st.plotly_chart(fig_summary, use_container_width=True)
+                
+                with col2:
+                    fig_financial = create_financial_chart(metrics_consolidadas)
+                    st.plotly_chart(fig_financial, use_container_width=True)
+                
+                # Gráfico temporal
+                st.subheader("📈 Evolução Temporal das Métricas")
+                fig_temporal = create_temporal_chart(metricas_temporais)
+                if fig_temporal:
+                    st.plotly_chart(fig_temporal, use_container_width=True)
+                
+                # Tabela detalhada
+                st.subheader("📋 Detalhamento por Competência")
+                df_detalhado = pd.DataFrame(metricas_temporais)
+                
+                # Colunas com compatibilidade para nomes antigos e novos
+                colunas_display = ['competencia_formatada', 'quantidade_teto', 'quantidade_credenciado', 'quantidade_pago']
+                
+                # Adiciona colunas de repasse (novo) ou financeiras (antigo)
+                if 'repasse_recebido' in df_detalhado.columns:
+                    colunas_display.extend(['repasse_recebido', 'perda_repasse'])
+                else:
+                    colunas_display.extend(['total_recebido', 'total_perda'])
+                
+                colunas_display.append('eficiencia')
+                
+                df_display = df_detalhado[colunas_display].copy()
+                df_display.columns = ['Competência', 'Teto', 'Credenciados', 'Pagos', 'Repasse Recebido (R$)', 'Perda Repasse (R$)', 'Eficiência (%)']
+                
+                # Formatação
+                df_display['Repasse Recebido (R$)'] = df_display['Repasse Recebido (R$)'].apply(lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                df_display['Perda Repasse (R$)'] = df_display['Perda Repasse (R$)'].apply(lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                df_display['Eficiência (%)'] = df_display['Eficiência (%)'].apply(lambda x: f"{x:.1f}%")
+                
+                st.dataframe(df_display, use_container_width=True)
+                
+                # Download dos dados
+                st.subheader("⬇️ Exportar Relatório")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # CSV do relatório
+                    csv_string = df_detalhado.to_csv(index=False, encoding='utf-8-sig')
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    municipio_nome = municipio_selecionado.replace(' ', '_') if municipio_selecionado else 'municipio'
-                    filename = f"dados_saude_{municipio_nome}_{timestamp}.json"
+                    filename_csv = f"relatorio_acs_{municipio_selecionado.replace(' ', '_')}_{timestamp}.csv"
                     
                     st.download_button(
-                        label="📥 Baixar JSON",
-                        data=json_string,
-                        file_name=filename,
-                        mime="application/json",
-                        use_container_width=True
+                        label="📊 Baixar Relatório CSV",
+                        data=csv_string,
+                        file_name=filename_csv,
+                        mime="text/csv"
                     )
+                
+                with col2:
+                    # JSON consolidado
+                    dados_export = {
+                        'municipio': municipio_selecionado,
+                        'uf': uf_selecionada.split(' - ')[0],
+                        'data_relatorio': datetime.now().isoformat(),
+                        'metricas_por_competencia': metricas_temporais,
+                        'resumo_consolidado': dados_consolidados['resumo_geral']
+                    }
+                    json_string = json.dumps(dados_export, indent=2, ensure_ascii=False)
+                    filename_json = f"dados_acs_{municipio_selecionado.replace(' ', '_')}_{timestamp}.json"
                     
-                    st.info(f"Arquivo: {filename}")
-                    st.info(f"Tamanho: {len(json_string):,} caracteres")
+                    st.download_button(
+                        label="📥 Baixar Dados JSON",
+                        data=json_string,
+                        file_name=filename_json,
+                        mime="application/json"
+                    )
+                
+            else:
+                st.warning("⚠️ Nenhum dado de ACS encontrado para este município nas competências consultadas.")
+                st.info("💡 **Dica**: Nem todos os municípios possuem dados de ACS disponíveis em todas as competências.")
     
     else:
-        st.info("👈 Selecione um estado e município na barra lateral para começar")
+        # Informações sobre o sistema
+        st.markdown("---")
+        st.info("👈 **Selecione um estado e município para gerar o relatório completo de ACS**")
         
-        # Informações sobre a aplicação
-        with st.expander("ℹ️ Sobre esta aplicação"):
+        with st.expander("ℹ️ Sobre o Relatório Completo"):
             st.markdown("""
-            Esta aplicação permite consultar dados de financiamento da Atenção Primária à Saúde 
-            através da API oficial do Ministério da Saúde.
+            Este relatório consulta **automaticamente todas as competências disponíveis** (Jan-Jul 2025) 
+            para fornecer uma análise temporal completa dos Agentes Comunitários de Saúde.
             
-            **Funcionalidades:**
-            - 🗺️ Seleção de estados e municípios via APIs nativas do Ministério da Saúde
-            - 📅 Configuração inteligente de período com anos disponíveis
-            - 📊 Visualização dos dados em formato tabular
-            - 🔍 Visualização do JSON completo
-            - ⬇️ Download dos dados em formato JSON
+            **📊 As 6 Métricas Principais:**
+            1. **🎯 Quantidade Teto** - Limite máximo de ACS aprovado
+            2. **✅ ACS Credenciados** - Total de ACS habilitados (direto + indireto)
+            3. **💰 ACS Pagos** - Total de ACS que receberam pagamento
+            4. **🎯 Total Deveria Receber** - Valor estimado baseado no teto
+            5. **💵 Total Recebido** - Valor efetivamente transferido
+            6. **📉 Total de Perda** - Diferença entre esperado e recebido
             
-            **APIs utilizadas:**
-            - `/ufs` - Lista de unidades federativas
-            - `/ibge/municipios` - Municípios por UF
-            - `/data/parcelas` - Parcelas disponíveis por ano
-            - `/financiamento/pagamento` - Dados de financiamento
+            **🔄 Funcionalidades:**
+            - ✅ Consulta automática de múltiplas competências
+            - ✅ Gráficos temporais de evolução
+            - ✅ Cards visuais com status por cores
+            - ✅ Tabela detalhada por período
+            - ✅ Download de relatórios CSV e JSON
+            - ✅ Análise de tendências e eficiência
             
-            **Como usar:**
-            1. Selecione o estado na barra lateral
-            2. Escolha o município
-            3. Configure o período desejado (apenas anos com dados)
-            4. Clique em "Consultar Dados"
-            5. Visualize e faça download dos resultados
+            **⏱️ Tempo estimado:** 3-5 segundos por competência
             """)
 
 if __name__ == "__main__":
