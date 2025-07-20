@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(venv_acsScripts:*)",
+      "Bash(pip install:*)",
+      "Bash(.\\venv_acs\\Scripts\\pip.exe install:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell:*)"
+    ],
+    "deny": []
+  }
+}

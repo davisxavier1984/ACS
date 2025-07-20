@@ -1,0 +1,190 @@
+o servidor precisa de um processo pra responder:
+
+header:
+
+Request URL
+https://relatorioaps-prd.saude.gov.br/ibge/municipios?coUf=26
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+189.28.130.4:443
+Referrer Policy
+strict-origin-when-cross-origin
+HTTP/1.1 200
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Access-Control-Allow-Origin: https://relatorioaps.saude.gov.br
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sat, 19 Jul 2025 23:31:27 GMT
+Keep-Alive: timeout=60
+Connection: keep-alive
+Set-Cookie: BIGipServerspringboot-relatorioaps-prod=721493420.8225.0000; path=/; Httponly; Secure
+GET /ibge/municipios?coUf=26 HTTP/1.1
+Accept: application/json, text/plain, */*
+Accept-Encoding: gzip, deflate, br, zstd
+Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
+Cache-Control: no-cache
+Connection: keep-alive
+Host: relatorioaps-prd.saude.gov.br
+Origin: https://relatorioaps.saude.gov.br
+Pragma: no-cache
+Referer: https://relatorioaps.saude.gov.br/
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: cors
+Sec-Fetch-Site: same-site
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "Windows"
+
+payload: coUf=26
+
+
+
+header:
+
+Request URL
+https://relatorioaps-prd.saude.gov.br/data/parcelas?ano=2025
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+189.28.130.4:443
+Referrer Policy
+strict-origin-when-cross-origin
+HTTP/1.1 200
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Access-Control-Allow-Origin: https://relatorioaps.saude.gov.br
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sat, 19 Jul 2025 23:31:34 GMT
+Keep-Alive: timeout=60
+Connection: keep-alive
+Set-Cookie: BIGipServerspringboot-relatorioaps-prod=721493420.8225.0000; path=/; Httponly; Secure
+GET /data/parcelas?ano=2025 HTTP/1.1
+Accept: application/json, text/plain, */*
+Accept-Encoding: gzip, deflate, br, zstd
+Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
+Cache-Control: no-cache
+Connection: keep-alive
+Host: relatorioaps-prd.saude.gov.br
+Origin: https://relatorioaps.saude.gov.br
+Pragma: no-cache
+Referer: https://relatorioaps.saude.gov.br/
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: cors
+Sec-Fetch-Site: same-site
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "Windows"
+
+payload: ano=2025
+
+header:
+
+pt-BR.json
+ufs
+anos
+pt-BR.json
+ufs
+anos
+municipios?coUf=26
+parcelas?ano=2025
+parcelas?ano=2025&mes=1
+pagamento?unidadeGeografica=MUNICIPIO&coUf=26&coMu…202501&nuParcelaFim=202507&tipoRelatorio=COMPLETO
+10 / 44 requests
+66.9 kB / 7,521 kB transferred
+62.7 kB / 7,596 kB resources
+Finish: 1.3 min
+DOMContentLoaded: 42.11 s
+Request URL
+https://relatorioaps-prd.saude.gov.br/data/parcelas?ano=2025&mes=1
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+189.28.130.4:443
+Referrer Policy
+strict-origin-when-cross-origin
+HTTP/1.1 200
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Access-Control-Allow-Origin: https://relatorioaps.saude.gov.br
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sat, 19 Jul 2025 23:31:36 GMT
+Keep-Alive: timeout=60
+Connection: keep-alive
+Set-Cookie: BIGipServerspringboot-relatorioaps-prod=721493420.8225.0000; path=/; Httponly; Secure
+GET /data/parcelas?ano=2025&mes=1 HTTP/1.1
+Accept: application/json, text/plain, */*
+Accept-Encoding: gzip, deflate, br, zstd
+Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
+Cache-Control: no-cache
+Connection: keep-alive
+Host: relatorioaps-prd.saude.gov.br
+Origin: https://relatorioaps.saude.gov.br
+Pragma: no-cache
+Referer: https://relatorioaps.saude.gov.br/
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: cors
+Sec-Fetch-Site: same-site
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "Windows"
+
+payload: ano=2025&mes=1
+
+
+
+unidadeGeografica=MUNICIPIO&coUf=26&coMunicipio=261180&nuParcelaInicio=202501&nuParcelaFim=202507&tipoRelatorio=COMPLETO
+
+Request URL
+https://relatorioaps-prd.saude.gov.br/financiamento/pagamento?unidadeGeografica=MUNICIPIO&coUf=26&coMunicipio=261180&nuParcelaInicio=202501&nuParcelaFim=202507&tipoRelatorio=COMPLETO
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+189.28.130.4:443
+Referrer Policy
+strict-origin-when-cross-origin
+HTTP/1.1 200
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Access-Control-Allow-Origin: https://relatorioaps.saude.gov.br
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sat, 19 Jul 2025 23:31:55 GMT
+Keep-Alive: timeout=60
+Connection: keep-alive
+Set-Cookie: BIGipServerspringboot-relatorioaps-prod=721493420.8225.0000; path=/; Httponly; Secure
+GET /financiamento/pagamento?unidadeGeografica=MUNICIPIO&coUf=26&coMunicipio=261180&nuParcelaInicio=202501&nuParcelaFim=202507&tipoRelatorio=COMPLETO HTTP/1.1
+Accept: application/json, text/plain, */*
+Accept-Encoding: gzip, deflate, br, zstd
+Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
+Cache-Control: no-cache
+Connection: keep-alive
+Host: relatorioaps-prd.saude.gov.br
+Origin: https://relatorioaps.saude.gov.br
+Pragma: no-cache
+Referer: https://relatorioaps.saude.gov.br/
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: cors
+Sec-Fetch-Site: same-site
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "Windows"

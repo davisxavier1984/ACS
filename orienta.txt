@@ -1,0 +1,168 @@
+Com base nos logs de requisições que você forneceu, é possível descrever o processo do servidor (backend) e a interação com o cliente (frontend/navegador) de forma bastante clara.
+
+Essas requisições mostram um fluxo de trabalho em etapas, onde o usuário preenche um formulário e a página busca os dados necessários para popular as opções seguintes, culminando na geração do relatório final.
+
+Visão Geral do Processo
+
+O servidor está configurado para responder a uma série de pequenas requisições que constroem o contexto para a requisição final. Isso é uma prática comum em aplicações web modernas (Single Page Applications - SPA) para tornar a experiência do usuário mais fluida e dinâmica, sem precisar recarregar a página a cada seleção.
+
+O processo pode ser resumido em 4 etapas principais do ponto de vista do servidor:
+
+Fornecer listas de opções: O servidor entrega dados básicos para preencher os menus de seleção (dropdowns), como a lista de municípios de um estado.
+
+Fornecer dados de competência: O servidor informa quais períodos (anos, meses/parcelas) têm dados disponíveis.
+
+Validar seleções: O servidor pode ser consultado para validar ou detalhar uma seleção específica (como um mês).
+
+Processar e entregar o relatório final: Com todos os filtros definidos pelo usuário, o servidor executa a consulta principal, reúne os dados e os envia de volta.
+
+Detalhamento Passo a Passo do Processo do Servidor
+
+Vamos seguir a ordem lógica das requisições que você enviou.
+
+Etapa 1: Usuário seleciona o Estado e o servidor retorna os Municípios
+
+Requisição do Cliente:
+GET /ibge/municipios?coUf=26
+
+Processo no Servidor:
+
+O servidor recebe uma requisição na rota /ibge/municipios.
+
+Ele extrai o parâmetro da URL: coUf=26.
+
+O servidor entende que precisa listar todos os municípios do estado com código IBGE "26" (Pernambuco).
+
+Ele executa uma consulta em seu banco de dados, em uma tabela de dados geográficos (provavelmente sincronizada com o IBGE). A consulta seria algo como:
+
+Generated sql
+SELECT codigo_municipio, nome_municipio FROM municipios WHERE codigo_uf = 26;
+
+
+O servidor formata o resultado dessa consulta em um array de objetos JSON. Cada objeto contém o nome e o código do município.
+
+Ele envia essa lista JSON de volta como resposta (Content-Type: application/json) com um status 200 OK.
+
+Resultado no Navegador: A lista de municípios de Pernambuco aparece no menu de seleção para o usuário.
+
+Etapa 2: Usuário seleciona o Ano e o servidor retorna as Parcelas (meses) disponíveis
+
+Requisição do Cliente:
+GET /data/parcelas?ano=2025
+
+Processo no Servidor:
+
+O servidor recebe a requisição na rota /data/parcelas.
+
+Ele extrai o parâmetro ano=2025.
+
+O servidor precisa descobrir para quais meses do ano de 2025 existem dados de pagamento.
+
+Ele executa uma consulta em sua tabela principal de pagamentos financeiros. A consulta buscaria os meses distintos para aquele ano, algo como:
+
+Generated sql
+SELECT DISTINCT mes FROM pagamentos WHERE ano = 2025 ORDER BY mes;
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+SQL
+IGNORE_WHEN_COPYING_END
+
+(Considerando que nuParcela no formato AAAAMM é dividido em colunas ano e mes no banco).
+
+O servidor formata a lista de meses disponíveis em um array JSON.
+
+Ele envia a resposta com status 200 OK.
+
+Resultado no Navegador: Os menus de seleção "Parcela Início" e "Parcela Fim" são populados com os meses de 2025 que têm dados.
+
+Etapa 3: Usuário seleciona o Mês de Início (possível validação)
+
+Requisição do Cliente:
+GET /data/parcelas?ano=2025&mes=1
+
+Processo no Servidor:
+
+O servidor recebe a requisição com os parâmetros ano=2025 e mes=1.
+
+Esta requisição pode ter duas finalidades:
+a. Validação Simples: Apenas confirmar que dados para Janeiro de 2025 existem (retornando um 200 OK se sim, ou 404 Not Found se não).
+b. Lógica de Interface: Fornecer dados para o próximo campo. Por exemplo, ao selecionar o mês de início, o servidor poderia retornar uma lista de meses válidos para o campo "Parcela Fim" (todos os meses a partir de Janeiro).
+
+O servidor executa uma consulta rápida para verificar a existência ou obter metadados sobre a parcela "202501".
+
+Ele retorna uma resposta JSON, que pode ser um simples objeto de confirmação ou a lista de meses subsequentes.
+
+Resultado no Navegador: A interface pode, por exemplo, desabilitar a seleção de meses anteriores a Janeiro no campo "Parcela Fim".
+
+Etapa 4: Usuário clica em "Gerar Relatório" e o servidor processa a requisição final
+
+Requisição do Cliente (a primeira que você enviou):
+GET /financiamento/pagamento?unidadeGeografica=MUNICIPIO&coUf=26&coMunicipio=261180&nuParcelaInicio=202501&nuParcelaFim=202507&tipoRelatorio=COMPLETO
+
+Processo no Servidor (o mais complexo):
+
+O servidor recebe a requisição na rota principal de relatórios: /financiamento/pagamento.
+
+Ele extrai e valida todos os parâmetros: unidadeGeografica, coUf, coMunicipio, nuParcelaInicio, nuParcelaFim e tipoRelatorio.
+
+Com base nesses parâmetros, o servidor monta a consulta mais importante no banco de dados financeiro. A consulta SQL seria complexa, unindo várias tabelas para obter um relatório completo. Exemplo conceitual:
+
+Generated sql
+SELECT
+    p.data_pagamento,
+    prog.nome_programa,
+    c.nome_componente,
+    p.valor_transferido
+FROM
+    pagamentos_detalhados p
+JOIN
+    programas prog ON p.codigo_programa = prog.codigo
+JOIN
+    componentes_financeiros c ON p.codigo_componente = c.codigo
+WHERE
+    p.codigo_municipio = 261180
+    AND p.parcela_competencia BETWEEN 202501 AND 202507
+ORDER BY
+    p.data_pagamento, prog.nome_programa;
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+SQL
+IGNORE_WHEN_COPYING_END
+
+O servidor executa essa consulta, que pode retornar centenas ou milhares de registros.
+
+Ele processa o resultado: agrega dados, calcula totais (se necessário) e estrutura tudo em um formato JSON aninhado e bem organizado, pronto para ser exibido em uma tabela no navegador.
+
+Finalmente, ele envia a resposta JSON com o relatório completo e o status 200 OK.
+
+Diagrama Simplificado do Fluxo
+Generated mermaid
+sequenceDiagram
+    participant User/Browser as Usuário (Navegador)
+    participant Server as Servidor (API)
+    participant Database as Banco de Dados
+
+    User/Browser->>Server: 1. GET /ibge/municipios?coUf=26
+    Server->>Database: Consultar municípios do estado 26
+    Database-->>Server: Lista de municípios
+    Server-->>User/Browser: JSON com municípios
+
+    User/Browser->>Server: 2. GET /data/parcelas?ano=2025
+    Server->>Database: Consultar meses com dados em 2025
+    Database-->>Server: Lista de meses
+    Server-->>User/Browser: JSON com meses disponíveis
+
+    User/Browser->>Server: 3. GET /financiamento/pagamento?(...parâmetros completos...)
+    Server->>Database: Executar consulta complexa do relatório
+    Database-->>Server: Dados detalhados do pagamento
+    Server-->>User/Browser: JSON com o relatório completo
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Mermaid
+IGNORE_WHEN_COPYING_END
