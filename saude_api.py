@@ -1,5 +1,7 @@
 import requests
 import streamlit as st
+import time
+import logging
 from typing import List, Dict, Optional
 
 class SaudeApi:
@@ -181,6 +183,16 @@ class SaudeApi:
         return None
     
     @staticmethod
+    def extrair_sigla_uf(codigo_uf: str) -> Optional[str]:
+        """
+        Extrai sigla da UF a partir do código IBGE
+        """
+        for uf in SaudeApi.UFS_BRASIL:
+            if uf.get('codigo') == codigo_uf:
+                return uf.get('sigla')
+        return None
+    
+    @staticmethod
     def extrair_codigo_municipio(municipio_nome: str, municipios: List[Dict]) -> Optional[str]:
         """
         Extrai código do município a partir do nome
@@ -188,4 +200,158 @@ class SaudeApi:
         for municipio in municipios:
             if municipio.get('nome') == municipio_nome:
                 return str(municipio.get('codigo', municipio.get('id', municipio.get('codigoIBGE', ''))))
+        return None
+
+    @staticmethod
+    def get_municipios_por_uf_sigla(uf_sigla: str) -> List[Dict]:
+        """
+        Obtém lista de municípios por sigla da UF (ex: "PE", "SP") com política de retry
+        
+        Args:
+            uf_sigla: Sigla da UF (ex: "PE", "SP", "AC")
+            
+        Returns:
+            Lista de municípios ou lista vazia em caso de erro
+        """
+        # Converter sigla para código IBGE
+        codigo_uf = None
+        for uf in SaudeApi.UFS_BRASIL:
+            if uf['sigla'] == uf_sigla.upper():
+                codigo_uf = uf['codigo']
+                break
+        
+        if not codigo_uf:
+            logging.error(f"UF '{uf_sigla}' não encontrada")
+            return []
+        
+        # Configurações de retry
+        max_tentativas = 3
+        pausa_entre_tentativas = 5  # segundos
+        
+        for tentativa in range(1, max_tentativas + 1):
+            try:
+                logging.info(f"Tentativa {tentativa}/{max_tentativas} - Buscando municípios da UF {uf_sigla} (código {codigo_uf})")
+                
+                response = requests.get(
+                    f"{SaudeApi.BASE_URL}/ibge/municipios", 
+                    params={"coUf": codigo_uf},
+                    headers=SaudeApi._get_headers(), 
+                    timeout=30
+                )
+                response.raise_for_status()
+                municipios = response.json()
+                
+                # Validar estrutura da resposta
+                if not isinstance(municipios, list):
+                    raise ValueError(f"Resposta da API não é uma lista: {type(municipios)}")
+                
+                # Ordenar por nome se possível
+                if municipios and isinstance(municipios[0], dict) and 'nome' in municipios[0]:
+                    municipios = sorted(municipios, key=lambda x: x.get('nome', ''))
+                
+                logging.info(f"Sucesso! {len(municipios)} municípios encontrados para UF {uf_sigla}")
+                return municipios
+                
+            except requests.exceptions.Timeout:
+                logging.warning(f"Timeout na tentativa {tentativa} para UF {uf_sigla}")
+            except requests.exceptions.ConnectionError:
+                logging.warning(f"Erro de conexão na tentativa {tentativa} para UF {uf_sigla}")
+            except requests.exceptions.HTTPError as e:
+                logging.warning(f"Erro HTTP {e.response.status_code} na tentativa {tentativa} para UF {uf_sigla}")
+            except requests.exceptions.RequestException as e:
+                logging.warning(f"Erro de requisição na tentativa {tentativa} para UF {uf_sigla}: {e}")
+            except ValueError as e:
+                logging.error(f"Erro na estrutura da resposta para UF {uf_sigla}: {e}")
+                break  # Não vale a pena tentar novamente para erros de estrutura
+            except Exception as e:
+                logging.error(f"Erro inesperado na tentativa {tentativa} para UF {uf_sigla}: {e}")
+            
+            # Pausa entre tentativas (exceto na última)
+            if tentativa < max_tentativas:
+                logging.info(f"Aguardando {pausa_entre_tentativas}s antes da próxima tentativa...")
+                time.sleep(pausa_entre_tentativas)
+        
+        logging.error(f"Falha após {max_tentativas} tentativas para UF {uf_sigla}")
+        return []
+
+    @staticmethod
+    def get_dados_pagamento(codigo_uf: str, codigo_municipio: str, competencia: str) -> Optional[Dict]:
+        """
+        Obtém dados de pagamento ACS para um município e competência específicos
+        
+        Args:
+            codigo_uf: Código IBGE da UF (ex: "26" para PE)
+            codigo_municipio: Código IBGE do município (ex: "260010")
+            competencia: Competência no formato AAAA/MM (ex: "2024/01")
+            
+        Returns:
+            Dados de pagamento em formato JSON ou None em caso de erro
+        """
+        # Converter competência de AAAA/MM para AAAAMM
+        try:
+            ano, mes = competencia.split('/')
+            competencia_formatada = f"{ano}{mes}"
+        except ValueError:
+            logging.error(f"Formato de competência inválido: {competencia}. Use AAAA/MM")
+            return None
+        
+        # Configurações de retry
+        max_tentativas = 3
+        pausa_entre_tentativas = 5  # segundos
+        
+        for tentativa in range(1, max_tentativas + 1):
+            try:
+                logging.info(f"Tentativa {tentativa}/{max_tentativas} - Buscando dados de pagamento UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
+                
+                # Parâmetros da requisição (baseado em competencias_manager.py)
+                params = {
+                    'unidadeGeografica': 'MUNICIPIO',
+                    'coUf': codigo_uf,
+                    'coMunicipio': codigo_municipio,
+                    'nuParcelaInicio': competencia_formatada,
+                    'nuParcelaFim': competencia_formatada,
+                    'tipoRelatorio': 'COMPLETO'
+                }
+                
+                response = requests.get(
+                    f"{SaudeApi.BASE_URL}/financiamento/pagamento", 
+                    params=params,
+                    headers=SaudeApi._get_headers(), 
+                    timeout=30
+                )
+                response.raise_for_status()
+                dados = response.json()
+                
+                # Validar estrutura da resposta
+                if dados is None:
+                    logging.warning(f"Resposta vazia para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
+                    return None
+                
+                logging.info(f"Sucesso! Dados obtidos para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
+                return dados
+                
+            except requests.exceptions.Timeout:
+                logging.warning(f"Timeout na tentativa {tentativa} para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
+            except requests.exceptions.ConnectionError:
+                logging.warning(f"Erro de conexão na tentativa {tentativa} para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    logging.info(f"Dados não encontrados (404) para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
+                    return None  # Não vale a pena tentar novamente para 404
+                else:
+                    logging.warning(f"Erro HTTP {e.response.status_code} na tentativa {tentativa} para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
+            except requests.exceptions.RequestException as e:
+                logging.warning(f"Erro de requisição na tentativa {tentativa} para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}: {e}")
+            except ValueError as e:
+                logging.error(f"Erro na estrutura da resposta para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}: {e}")
+                break  # Não vale a pena tentar novamente para erros de estrutura
+            except Exception as e:
+                logging.error(f"Erro inesperado na tentativa {tentativa} para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}: {e}")
+            
+            # Pausa entre tentativas (exceto na última)
+            if tentativa < max_tentativas:
+                logging.info(f"Aguardando {pausa_entre_tentativas}s antes da próxima tentativa...")
+                time.sleep(pausa_entre_tentativas)
+        
+        logging.error(f"Falha após {max_tentativas} tentativas para UF:{codigo_uf} Município:{codigo_municipio} Competência:{competencia}")
         return None

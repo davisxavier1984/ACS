@@ -1,0 +1,443 @@
+import streamlit as st
+import pandas as pd
+import json
+import os
+from pathlib import Path
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+import plotly.graph_objects as go
+import plotly.express as px
+from acs_analyzer import ACSAnalyzer
+from saude_api import SaudeApi
+
+# Constante para cálculo de valores esperados
+VALOR_REPASSE_POR_ACS = 3036.00
+
+def formatar_moeda_brasileira(valor: float) -> str:
+    """
+    Formata um valor numérico para o padrão de moeda brasileira
+    Exemplo: 1234567.89 -> "R$ 1.234.567,89"
+    """
+    if valor is None:
+        return "R$ 0,00"
+    
+    # Formatar com 2 casas decimais
+    valor_formatado = f"{valor:,.2f}"
+    
+    # Trocar separadores para padrão brasileiro
+    # Python usa . para milhares e , para decimais (padrão americano)
+    # Brasil usa . para milhares e , para decimais
+    partes = valor_formatado.split('.')
+    parte_inteira = partes[0]
+    parte_decimal = partes[1] if len(partes) > 1 else "00"
+    
+    # Trocar vírgulas por pontos na parte inteira (milhares)
+    parte_inteira = parte_inteira.replace(',', '.')
+    
+    return f"R$ {parte_inteira},{parte_decimal}"
+
+st.set_page_config(
+    page_title="Visão Municipal Detalhada",
+    page_icon="🏘️", 
+    layout="wide"
+)
+
+def carregar_dados_locais_municipio(codigo_municipio: str, competencias: list) -> dict:
+    """
+    Carrega dados locais para um município específico e competências específicas
+    
+    Args:
+        codigo_municipio: Código IBGE do município
+        competencias: Lista de competências no formato "AAAA/MM"
+        
+    Returns:
+        Dict com dados encontrados por competência
+    """
+    dados_encontrados = {}
+    data_dir = Path("data")
+    json_files = list(data_dir.glob("dados_*.json"))
+    
+    for competencia in competencias:
+        dados_encontrados[competencia] = None
+        
+        for file_path in json_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    dados_brutos = json.load(f)
+                
+                # Verificar se esta competência está nos metadados
+                metadados_competencias = dados_brutos.get('metadados', {}).get('competencias', [])
+                if competencia not in metadados_competencias:
+                    continue
+                
+                # Buscar o município nos resultados
+                resultados = dados_brutos.get('resultados', [])
+                for resultado in resultados:
+                    if str(resultado.get('codigo_municipio', '')) == str(codigo_municipio):
+                        # Verificar se tem dados para esta competência específica
+                        dados_processados = ACSAnalyzer.processar_dados_coletados([resultado])
+                        df_temp = pd.DataFrame(dados_processados)
+                        
+                        # Filtrar pela competência
+                        df_competencia = df_temp[df_temp['competencia'] == competencia]
+                        if not df_competencia.empty:
+                            dados_encontrados[competencia] = df_competencia.iloc[0].to_dict()
+                            break
+                
+                if dados_encontrados[competencia] is not None:
+                    break
+                    
+            except Exception as e:
+                st.warning(f"Erro ao ler arquivo {file_path}: {e}")
+                continue
+    
+    return dados_encontrados
+
+def buscar_dados_api(codigo_uf: str, codigo_municipio: str, competencia: str) -> dict:
+    """
+    Busca dados via API para uma competência específica e os formata
+    para serem processados pelo ACSAnalyzer.processar_dados_coletados
+    """
+    dados_brutos_api = SaudeApi.get_dados_pagamento(codigo_uf, codigo_municipio, competencia)
+    
+    if dados_brutos_api is None:
+        return None
+    
+    # Formatar para simular a saída de um único item do coletor
+    # ACSAnalyzer.processar_dados_coletados espera uma lista de dicionários,
+    # onde cada dicionário tem chaves como 'municipio', 'competencia', 'dados', 'status'
+    
+    municipio_nome = "Nome Desconhecido" # Será preenchido pelo ACSAnalyzer se disponível nos dados brutos
+    if dados_brutos_api and 'pagamentos' in dados_brutos_api and dados_brutos_api['pagamentos']:
+        # Tenta extrair o nome do município do primeiro registro de pagamento, se disponível
+        first_payment_record = dados_brutos_api['pagamentos']
+        if first_payment_record and 'noMunicipio' in first_payment_record:
+            municipio_nome = first_payment_record['noMunicipio']
+
+
+    # Retornar o dicionário no formato que o ACSAnalyzer.processar_dados_coletados espera
+    # (um item da lista 'resultados' do JSON salvo)
+    resultado_formatado = {
+        'uf': SaudeApi.extrair_sigla_uf(codigo_uf), # Extrai sigla da UF
+        'codigo_uf': codigo_uf,
+        'municipio': municipio_nome,
+        'codigo_municipio': codigo_municipio,
+        'competencia': competencia, # Formato AAAA/MM
+        'timestamp_coleta': datetime.now().isoformat(),
+        'status': 'sucesso',
+        'dados': dados_brutos_api # O JSON bruto completo da API vai para a chave 'dados'
+    }
+    
+    # Agora, passe esta lista contendo UM item para ACSAnalyzer.processar_dados_coletados
+    # A função processar_dados_coletados já espera uma LISTA
+    dados_processados = ACSAnalyzer.processar_dados_coletados([resultado_formatado])
+
+    if dados_processados:
+        return dados_processados[0] # Retorna o primeiro item processado (que é o único)
+    
+    return None # Retorna None se não conseguir processar
+
+def gerar_ultimas_competencias(competencia_referencia: str, qtd: int = 3) -> list:
+    """
+    Gera lista das últimas competências a partir de uma competência de referência
+    
+    Args:
+        competencia_referencia: Competência no formato "AAAA/MM"
+        qtd: Quantidade de competências a retornar
+        
+    Returns:
+        Lista de competências em ordem decrescente
+    """
+    try:
+        ano, mes = map(int, competencia_referencia.split('/'))
+        data_ref = datetime(ano, mes, 1)
+        
+        competencias = []
+        for i in range(qtd):
+            data_comp = data_ref - relativedelta(months=i)
+            comp_str = f"{data_comp.year}/{data_comp.month:02d}"
+            competencias.append(comp_str)
+        
+        return competencias
+    except Exception as e:
+        st.error(f"Erro ao gerar competências: {e}")
+        return []
+
+# --- Interface Principal ---
+st.title("🏘️ Visão Municipal Detalhada")
+
+# Seletores
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Seleção de Localização")
+    
+    # Carregar UFs
+    ufs = SaudeApi.get_ufs()
+    ufs_formatadas = [SaudeApi.formatar_uf_para_dropdown(uf) for uf in ufs]
+    
+    uf_selecionada = st.selectbox("Estado (UF):", ufs_formatadas)
+    
+    # Extrair código da UF selecionada
+    codigo_uf = SaudeApi.extrair_codigo_uf(uf_selecionada, ufs)
+    
+    # Carregar municípios se UF foi selecionada
+    municipios = []
+    if codigo_uf:
+        municipios = SaudeApi.get_municipios_por_uf(codigo_uf)
+        municipios_formatados = [SaudeApi.formatar_municipio_para_dropdown(mun) for mun in municipios]
+        
+        municipio_selecionado = st.selectbox("Município:", municipios_formatados)
+        codigo_municipio = SaudeApi.extrair_codigo_municipio(municipio_selecionado, municipios)
+    else:
+        st.warning("Selecione uma UF válida")
+        codigo_municipio = None
+
+with col2:
+    st.subheader("Período de Análise")
+    
+    # Competência de referência
+    competencia_referencia = st.selectbox(
+        "Competência de Referência:",
+        ["2025/07", "2025/06", "2025/05", "2025/04", "2025/03", "2025/02", "2025/01",
+         "2024/12", "2024/11", "2024/10", "2024/09", "2024/08", "2024/07"]
+    )
+    
+    # Botão de análise
+    analisar = st.button("🔍 Analisar", type="primary", use_container_width=True)
+
+# Processamento quando botão for clicado
+if analisar and codigo_uf and codigo_municipio and competencia_referencia:
+    
+    # Gerar competências dos últimos 3 meses
+    competencias_desejadas = gerar_ultimas_competencias(competencia_referencia, 3)
+    
+    # Tentar carregar dados locais primeiro
+    dados_locais = carregar_dados_locais_municipio(codigo_municipio, competencias_desejadas)
+    
+    # Buscar dados ausentes via API
+    dados_finais = []
+    
+    for comp in competencias_desejadas:
+        if dados_locais[comp] is not None:
+            # Usar dados locais
+            dados_finais.append(dados_locais[comp])
+        else:
+            # Buscar via API
+            dados_api = buscar_dados_api(codigo_uf, codigo_municipio, comp)
+            
+            if dados_api is not None:
+                dados_finais.append(dados_api)
+    
+    # Processar dados e criar dashboard
+    if dados_finais:
+        df_3_meses = pd.DataFrame(dados_finais)
+        
+        # Adicionar colunas calculadas se não existirem
+        if 'qtTotalCredenciado' not in df_3_meses.columns:
+            df_3_meses['qtTotalCredenciado'] = (
+                df_3_meses.get('qtAcsDiretoCredenciado', 0) + 
+                df_3_meses.get('qtAcsIndiretoCredenciado', 0)
+            )
+        
+        if 'qtTotalPago' not in df_3_meses.columns:
+            df_3_meses['qtTotalPago'] = (
+                df_3_meses.get('qtAcsDiretoPgto', 0) + 
+                df_3_meses.get('qtAcsIndiretoPgto', 0)
+            )
+        
+        if 'vlTotalAcs' not in df_3_meses.columns:
+            df_3_meses['vlTotalAcs'] = (
+                df_3_meses.get('vlTotalAcsDireto', 0) + 
+                df_3_meses.get('vlTotalAcsIndireto', 0)
+            )
+        
+        # Adicionar coluna valor esperado (baseado em ACS credenciados e valor oficial de repasse)
+        df_3_meses['vlEsperado'] = df_3_meses['qtTotalCredenciado'] * VALOR_REPASSE_POR_ACS
+        
+        # Ordenar por competência (mais recente primeiro)
+        df_3_meses = df_3_meses.sort_values('competencia', ascending=False)
+        
+        
+        # === TÍTULO E CONTEXTO ===
+        st.divider()
+        st.title(f"🏘️ Dashboard Municipal - {municipio_selecionado}")
+        st.info(f"📍 **Estado:** {uf_selecionada} | **Período:** {competencias_desejadas[-1]} a {competencias_desejadas[0]} | **Registros:** {len(df_3_meses)}")
+        
+        # === KPIs MUNICIPAIS COM DELTAS ===
+        st.header("📊 Indicadores Principais")
+        
+        # Dados do mês mais recente e anterior para calcular deltas
+        dados_atual = df_3_meses.iloc[0] if len(df_3_meses) > 0 else None
+        dados_anterior = df_3_meses.iloc[1] if len(df_3_meses) > 1 else None
+        
+        if dados_atual is not None:
+            col1, col2, col3 = st.columns(3)
+
+            # --- KPI 1: Valor Recebido (R$) ---
+            with col1:
+                valor_recebido = dados_atual['vlTotalAcs']
+                delta_valor = float(valor_recebido - dados_anterior['vlTotalAcs']) if dados_anterior is not None else 0
+                st.metric(
+                    "Valor Recebido (R$)",
+                    value=formatar_moeda_brasileira(valor_recebido),
+                    delta=delta_valor if dados_anterior is not None else None,
+                    delta_color="normal" # Verde para positivo, vermelho para negativo
+                )
+
+            # --- KPI 2: ACS Pagos ---
+            with col2:
+                acs_pagos = dados_atual['qtTotalPago']
+                delta_acs = int(acs_pagos - dados_anterior['qtTotalPago']) if dados_anterior is not None else 0
+                st.metric(
+                    "ACS Pagos",
+                    value=f"{int(acs_pagos)}",
+                    delta=delta_acs if dados_anterior is not None else None,
+                    delta_color="normal" # Verde para positivo, vermelho para negativo
+                )
+
+            # --- KPI 3: Valor Esperado (R$) ---
+            with col3:
+                valor_esperado = dados_atual['vlEsperado'] # Agora vlEsperado está calculado corretamente
+                delta_esperado = float(valor_esperado - dados_anterior['vlEsperado']) if dados_anterior is not None else 0
+                st.metric(
+                    "Valor Esperado (R$)",
+                    value=formatar_moeda_brasileira(valor_esperado),
+                    delta=delta_esperado if dados_anterior is not None else None,
+                    delta_color="normal" # Verde para positivo, vermelho para negativo
+                )
+
+                
+        
+        # === GRÁFICOS COMPARATIVOS ===
+        st.header("📈 Análise Comparativa")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("💰 Análise Financeira")
+            
+            # Preparar dados para o gráfico financeiro
+            meses = [comp.replace('/', '/') for comp in df_3_meses['competencia'].tolist()[::-1]]  # Ordem cronológica
+            valores_esperados = df_3_meses['vlEsperado'].tolist()[::-1]
+            valores_recebidos = df_3_meses['vlTotalAcs'].tolist()[::-1]
+            
+            fig_financeiro = go.Figure()
+            fig_financeiro.add_trace(go.Bar(
+                name='Valor Esperado',
+                x=meses,
+                y=valores_esperados,
+                marker_color='#003366',  # Azul Escuro
+                text=[f'R$ {v:,.0f}' for v in valores_esperados],
+                textposition='auto'
+            ))
+            fig_financeiro.add_trace(go.Bar(
+                name='Valor Recebido',
+                x=meses,
+                y=valores_recebidos,
+                marker_color='#2ca02c',  # Verde Vibrante
+                text=[f'R$ {v:,.0f}' for v in valores_recebidos],
+                textposition='auto'
+            ))
+            
+            fig_financeiro.update_layout(
+                title='Comparação: Esperado vs Recebido',
+                xaxis_title='Competência',
+                yaxis_title='Valor (R$)',
+                barmode='group',
+                height=400
+            )
+            
+            st.plotly_chart(fig_financeiro, use_container_width=True)
+        
+        with col2:
+            st.subheader("👥 Análise de Pessoal")
+            
+            # Preparar dados para o gráfico de pessoal
+            acs_credenciados = df_3_meses['qtTotalCredenciado'].tolist()[::-1]
+            acs_pagos_lista = df_3_meses['qtTotalPago'].tolist()[::-1]
+            
+            fig_pessoal = go.Figure()
+            fig_pessoal.add_trace(go.Bar(
+                name='ACS Credenciados',
+                x=meses,
+                y=acs_credenciados,
+                marker_color='#8c8c8c',  # Cinza Médio
+                text=acs_credenciados,
+                textposition='auto'
+            ))
+            fig_pessoal.add_trace(go.Bar(
+                name='ACS Pagos',
+                x=meses,
+                y=acs_pagos_lista,
+                marker_color='#ff7f0e',  # Laranja Intenso
+                text=acs_pagos_lista,
+                textposition='auto'
+            ))
+            
+            fig_pessoal.update_layout(
+                title='Comparação: Credenciados vs Pagos',
+                xaxis_title='Competência',
+                yaxis_title='Quantidade de ACS',
+                barmode='group',
+                height=400
+            )
+            
+            st.plotly_chart(fig_pessoal, use_container_width=True)
+        
+        # === TABELA DE RESUMO DETALHADA ===
+        st.header("📋 Resumo Detalhado por Mês")
+        
+        # Criar DataFrame para tabela com variações calculadas
+        tabela_resumo = []
+        
+        for i, row in df_3_meses.iterrows():
+            # Encontrar dados do mês anterior para calcular variação
+            mes_anterior = None
+            idx_atual = df_3_meses.index.get_loc(i)
+            if idx_atual < len(df_3_meses) - 1:
+                mes_anterior = df_3_meses.iloc[idx_atual + 1]
+            
+            # Calcular variações
+            var_valor = row['vlTotalAcs'] - mes_anterior['vlTotalAcs'] if mes_anterior is not None else 0
+            var_acs = row['qtTotalPago'] - mes_anterior['qtTotalPago'] if mes_anterior is not None else 0
+            perda_ganho = var_valor  # Simplificado - pode ser refinado
+            
+            tabela_resumo.append({
+                'Mês/Ano': row['competencia'],
+                'Valor Recebido (R$)': row['vlTotalAcs'],
+                'Variação vs. Mês Ant. (R$)': var_valor,
+                'ACS Pagos': int(row['qtTotalPago']),
+                'Variação vs. Mês Ant. (Qtd.)': int(var_acs),
+                'Perda/Ganho (R$)': perda_ganho
+            })
+        
+        df_tabela = pd.DataFrame(tabela_resumo)
+        
+        # Função para colorir valores negativos e positivos
+        def color_negative_red_positive_green(val):
+            if isinstance(val, (int, float)):
+                if val < 0:
+                    return 'color: #D32F2F; font-weight: bold;'  # Vermelho
+                elif val > 0:
+                    return 'color: #388E3C; font-weight: bold;'  # Verde
+            return ''
+        
+        # Aplicar formatação e cores
+        styled_table = df_tabela.style.applymap(
+            color_negative_red_positive_green,
+            subset=['Variação vs. Mês Ant. (R$)', 'Variação vs. Mês Ant. (Qtd.)', 'Perda/Ganho (R$)']
+        ).format({
+            'Valor Recebido (R$)': 'R$ {:,.2f}',
+            'Variação vs. Mês Ant. (R$)': 'R$ {:+,.2f}',
+            'ACS Pagos': '{:,d}',
+            'Variação vs. Mês Ant. (Qtd.)': '{:+,d}',
+            'Perda/Ganho (R$)': 'R$ {:+,.2f}'
+        })
+        
+        st.dataframe(styled_table, use_container_width=True, hide_index=True)
+    else:
+        st.error("❌ Nenhum dado foi encontrado para o município e período selecionados.")
+
+elif analisar:
+    st.error("⚠️ Por favor, selecione UF, município e competência de referência antes de analisar.")

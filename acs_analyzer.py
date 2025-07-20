@@ -291,3 +291,39 @@ class ACSAnalyzer:
             return ("🟠", "warning", "Regular")
         else:
             return ("🔴", "error", "Crítica")
+    
+    @staticmethod
+    def processar_dados_coletados(resultados_coleta: List[Dict]) -> List[Dict]:
+        """
+        Processa a lista de resultados brutos do coletor e extrai as métricas de ACS.
+        """
+        dados_limpos = []
+        for resultado in resultados_coleta:
+            if resultado.get('status') == 'sucesso' and resultado.get('dados'):
+                
+                # Acessa o dicionário de dados da API
+                dados_api = resultado['dados']
+                
+                # Acessa a lista de pagamentos dentro do dicionário
+                pagamentos_lista = dados_api.get('pagamentos', [])
+                
+                if pagamentos_lista:
+                    # Pega o primeiro (e único) dicionário da lista de pagamentos
+                    dados_acs = pagamentos_lista[0]
+                    
+                    metricas = {
+                        'uf': resultado.get('uf', 'N/A'),
+                        'municipio': resultado.get('municipio', 'N/A'),
+                        'codigo_uf': resultado.get('codigo_uf', 'N/A'),
+                        'codigo_municipio': resultado.get('codigo_municipio', 'N/A'),
+                        'competencia': resultado.get('competencia', 'N/A'),
+                        'qtTetoAcs': dados_acs.get('qtTetoAcs', 0),
+                        'qtAcsDiretoCredenciado': dados_acs.get('qtAcsDiretoCredenciado', 0),
+                        'qtAcsIndiretoCredenciado': dados_acs.get('qtAcsIndiretoCredenciado', 0),
+                        'qtAcsDiretoPgto': dados_acs.get('qtAcsDiretoPgto', 0),
+                        'qtAcsIndiretoPgto': dados_acs.get('qtAcsIndiretoPgto', 0),
+                        'vlTotalAcsDireto': dados_acs.get('vlTotalAcsDireto', 0),
+                        'vlTotalAcsIndireto': dados_acs.get('vlTotalAcsIndireto', 0)
+                    }
+                    dados_limpos.append(metricas)
+        return dados_limpos
