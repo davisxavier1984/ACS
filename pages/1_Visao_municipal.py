@@ -291,8 +291,8 @@ if ((uf_param and municipio_ibge_param) or analisar_manualmente) and codigo_uf a
                 df_3_meses.get('vlTotalAcsIndireto', 0)
             )
         
-        # Adicionar coluna valor esperado (baseado em ACS credenciados e valor oficial de repasse)
-        df_3_meses['vlEsperado'] = df_3_meses['qtTotalCredenciado'] * VALOR_REPASSE_POR_ACS
+        # Adicionar coluna valor esperado (baseado em ACS credenciados diretos e valor oficial de repasse)
+        df_3_meses['vlEsperado'] = df_3_meses.get('qtAcsDiretoCredenciado', 0) * VALOR_REPASSE_POR_ACS
         
         # Ordenar por competência (mais recente primeiro)
         df_3_meses = df_3_meses.sort_values('competencia', ascending=False)
