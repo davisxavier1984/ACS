@@ -13,34 +13,38 @@ from saude_api import SaudeApi
 # Constante para cálculo de valores esperados
 VALOR_REPASSE_POR_ACS = 3036.00
 
+# Configuração da página
+st.set_page_config(
+    page_title="Dashboard ACS - Análise Municipal",
+    page_icon="🏘️", 
+    layout="wide"
+)
+
 def formatar_moeda_brasileira(valor: float) -> str:
     """
-    Formata um valor numérico para o padrão de moeda brasileira
-    Exemplo: 1234567.89 -> "R$ 1.234.567,89"
+    Formata um valor numérico para o padrão de moeda brasileira com abreviações Mil e Mi
     """
     if valor is None:
         return "R$ 0,00"
     
-    # Formatar com 2 casas decimais
-    valor_formatado = f"{valor:,.2f}"
-    
-    # Trocar separadores para padrão brasileiro
-    # Python usa . para milhares e , para decimais (padrão americano)
-    # Brasil usa . para milhares e , para decimais
-    partes = valor_formatado.split('.')
-    parte_inteira = partes[0]
-    parte_decimal = partes[1] if len(partes) > 1 else "00"
-    
-    # Trocar vírgulas por pontos na parte inteira (milhares)
-    parte_inteira = parte_inteira.replace(',', '.')
-    
-    return f"R$ {parte_inteira},{parte_decimal}"
+    if valor >= 1_000_000:
+        return f"R$ {valor/1_000_000:.1f}Mi"
+    elif valor >= 1_000:
+        return f"R$ {valor/1_000:.0f}Mil"
+    else:
+        # Para valores menores que 1000, manter formato original
+        valor_formatado = f"{valor:,.2f}"
+        partes = valor_formatado.split('.')
+        parte_inteira = partes[0]
+        parte_decimal = partes[1] if len(partes) > 1 else "00"
+        parte_inteira = parte_inteira.replace(',', '.')
+        return f"R$ {parte_inteira},{parte_decimal}"
 
-st.set_page_config(
-    page_title="Visão Municipal Detalhada",
-    page_icon="🏘️", 
-    layout="wide"
-)
+# Ler parâmetros da URL para drill-down
+query_params = st.query_params
+uf_param = query_params.get("uf", None)
+municipio_ibge_param = query_params.get("municipio_ibge", None)
+competencia_param = query_params.get("competencia", None)
 
 def carregar_dados_locais_municipio(codigo_municipio: str, competencias: list) -> dict:
     """
@@ -164,19 +168,49 @@ def gerar_ultimas_competencias(competencia_referencia: str, qtd: int = 3) -> lis
         return []
 
 # --- Interface Principal ---
-st.title("🏘️ Visão Municipal Detalhada")
+# Logo e cabeçalho
+col_logo, col_title = st.columns([1, 4])
+
+with col_logo:
+    st.image("logo.png", width=120)
+
+with col_title:
+    st.title("🏘️ Dashboard ACS - Análise Municipal")
+    st.markdown("**Sistema de análise detalhada dos Agentes Comunitários de Saúde por município**")
+
+# Informações sobre navegação entre páginas
+with st.expander("📌 Sobre o Sistema ACS"):
+    st.markdown("""
+    **🏘️ Página Atual: Análise Municipal (Página Principal)**
+    - Análise detalhada de um município específico nos últimos 3 meses
+    - Dados históricos e comparativos
+    - Visualizações financeiras e de pessoal
+    
+    **📑 Outras Análises Disponíveis:**
+    - **Visão Estadual**: Comparação entre municípios de um estado
+    - **Análise Multi-Competência**: Relatório temporal completo com múltiplas competências
+    
+    **💡 Dica**: Use a barra lateral para navegar entre as diferentes visões!
+    """)
+
+st.markdown("---")
 
 # Seletores
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Seleção de Localização")
+    st.subheader("🔍 Seleção de Localização")
     
     # Carregar UFs
     ufs = SaudeApi.get_ufs()
     ufs_formatadas = [SaudeApi.formatar_uf_para_dropdown(uf) for uf in ufs]
     
-    uf_selecionada = st.selectbox("Estado (UF):", ufs_formatadas)
+    # Encontrar o índice do UF que veio como parâmetro
+    default_uf_index = 0
+    if uf_param and uf_param in [uf['codigo'] for uf in ufs]:
+        default_uf_index = [uf['codigo'] for uf in ufs].index(uf_param)
+    
+    uf_selecionada = st.selectbox("Estado (UF):", ufs_formatadas, index=default_uf_index)
     
     # Extrair código da UF selecionada
     codigo_uf = SaudeApi.extrair_codigo_uf(uf_selecionada, ufs)
@@ -187,14 +221,19 @@ with col1:
         municipios = SaudeApi.get_municipios_por_uf(codigo_uf)
         municipios_formatados = [SaudeApi.formatar_municipio_para_dropdown(mun) for mun in municipios]
         
-        municipio_selecionado = st.selectbox("Município:", municipios_formatados)
+        # Encontrar o índice do município que veio como parâmetro
+        default_municipio_index = 0
+        if municipio_ibge_param and municipio_ibge_param in [mun['codigo'] for mun in municipios]:
+            default_municipio_index = [mun['codigo'] for mun in municipios].index(municipio_ibge_param)
+        
+        municipio_selecionado = st.selectbox("Município:", municipios_formatados, index=default_municipio_index)
         codigo_municipio = SaudeApi.extrair_codigo_municipio(municipio_selecionado, municipios)
     else:
         st.warning("Selecione uma UF válida")
         codigo_municipio = None
 
 with col2:
-    st.subheader("Período de Análise")
+    st.subheader("📅 Período de Análise")
     
     # Competência de referência
     competencia_referencia = st.selectbox(
@@ -204,10 +243,10 @@ with col2:
     )
     
     # Botão de análise
-    analisar = st.button("🔍 Analisar", type="primary", use_container_width=True)
+    analisar_manualmente = st.button("🔍 Analisar Município", type="primary", use_container_width=True)
 
-# Processamento quando botão for clicado
-if analisar and codigo_uf and codigo_municipio and competencia_referencia:
+# Processamento quando botão for clicado OU quando parâmetros da URL estiverem presentes
+if ((uf_param and municipio_ibge_param) or analisar_manualmente) and codigo_uf and codigo_municipio and competencia_referencia:
     
     # Gerar competências dos últimos 3 meses
     competencias_desejadas = gerar_ultimas_competencias(competencia_referencia, 3)
@@ -436,8 +475,44 @@ if analisar and codigo_uf and codigo_municipio and competencia_referencia:
         })
         
         st.dataframe(styled_table, use_container_width=True, hide_index=True)
+        
     else:
         st.error("❌ Nenhum dado foi encontrado para o município e período selecionados.")
 
-elif analisar:
+elif analisar_manualmente:
     st.error("⚠️ Por favor, selecione UF, município e competência de referência antes de analisar.")
+
+else:
+    # Informações sobre o sistema quando nada foi selecionado
+    st.markdown("---")
+    st.info("👆 **Selecione um estado, município e período para começar a análise**")
+    
+    # Exemplo com dados de teste
+    with st.expander("💡 Exemplo de Análise - Dados de Teste"):
+        st.markdown("""
+        **Município exemplo:** Abaré/PE (Pernambuco)
+        - Este município possui dados ACS disponíveis para teste
+        - Período recomendado: 2025/06 
+        - Use este exemplo para explorar as funcionalidades do sistema
+        
+        **Funcionalidades da Análise Municipal:**
+        - 📊 KPIs principais com variações mensais
+        - 📈 Gráficos comparativos (financeiro e pessoal)
+        - 📋 Tabela detalhada com histórico de 3 meses
+        - 🔍 Busca automática em dados locais e API
+        
+        **Navegação:**
+        - Use a barra lateral para acessar outras análises
+        - **Visão Estadual**: Comparar municípios de um estado
+        - **Multi-Competência**: Análise temporal completa
+        """)
+
+# Copyright na barra lateral
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<div style='text-align: center; color: #888; font-size: 0.8em; margin-top: 2rem;'>"
+    "© Mais Gestor (2025)<br>"
+    "Todos os direitos reservados"
+    "</div>", 
+    unsafe_allow_html=True
+)

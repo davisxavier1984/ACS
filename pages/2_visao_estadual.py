@@ -11,6 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
+
 def color_negative_red_positive_green(val):
     """
     Colors negative values red, positive values green, and zero white.
@@ -21,6 +22,17 @@ def color_negative_red_positive_green(val):
         elif val > 0:
             return 'color: #388E3C; font-weight: bold;'  # Verde mais escuro
     return ''
+
+def format_currency_abbreviated(value: float) -> str:
+    """Formata valor monetário com abreviações Mil e Mi"""
+    if value < 0:
+        return "-" + format_currency_abbreviated(abs(value))
+    elif value >= 1_000_000:
+        return f"R$ {value/1_000_000:.1f}Mi"
+    elif value >= 1_000:
+        return f"R$ {value/1_000:.0f}Mil"
+    else:
+        return f"R$ {value:,.0f}".replace(',', '.')
 
 @st.cache_data
 def carregar_e_processar_dados():
@@ -55,7 +67,15 @@ def carregar_e_processar_dados():
     return df_completo, metadados_gerais, sorted(list(metadados_gerais['competencias']), reverse=True)
 
 # --- Interface Principal ---
-st.title("🏛️ Visão Estadual Comparativa")
+# Logo e cabeçalho
+col_logo, col_title = st.columns([1, 4])
+
+with col_logo:
+    st.image("logo.png", width=120)
+
+with col_title:
+    st.title("🏛️ Visão Estadual Comparativa")
+    st.markdown("**Comparação entre municípios e análise de dados estaduais**")
 
 df_principal, metadados, competencias_disponiveis = carregar_e_processar_dados()
 
@@ -117,8 +137,8 @@ else:
         var_valor_total = df_merged['var_valor_recebido'].sum()
         st.metric(
             "Valor Total (R$)",
-            value=f"{total_valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-            delta=f"{var_valor_total:+,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+            value=format_currency_abbreviated(total_valor),
+            delta=format_currency_abbreviated(var_valor_total) if var_valor_total != 0 else None,
             help="Total de repasses federais recebidos para ACS no estado."
         )
     
@@ -144,7 +164,7 @@ else:
         saldo_total = df_merged['var_valor_recebido'].sum()
         st.metric(
             "Saldo Total (R$)",
-            value=f"R$ {saldo_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            value=format_currency_abbreviated(saldo_total)
         )
     
     st.divider()
@@ -154,13 +174,20 @@ else:
     st.header("📋 Dados Municipais Detalhados")
     
     # Crie a tabela final COM AS COLUNAS JÁ ARREDONDADAS E COM TIPOS CORRETOS
+    # Adicionar URLs para drill-down na coluna Município
+    df_merged['municipio_url'] = df_merged.apply(
+        lambda row: f"/Visao_municipal?uf={row['codigo_uf']}&municipio_ibge={row['codigo_municipio']}&competencia={competencia_selecionada}",
+        axis=1
+    )
+    
     tabela_final = pd.DataFrame({
-        'Município': df_merged['municipio'],
+        'Município': df_merged['municipio'],  # Nomes reais dos municípios
         'Valor Recebido (R$)': df_merged['vlTotalAcs'].round(2),
         'Variação vs. Mês Ant. (R$)': df_merged['var_valor_recebido'].round(2),
         'ACS Pagos': df_merged['qtTotalPago'].astype(int),
         'Variação vs. Mês Ant. (Qtd.)': df_merged['var_acs_pagos'].astype(int),
-        'Perda/Ganho (R$)': df_merged['var_valor_recebido'].round(2)
+        'Perda/Ganho (R$)': df_merged['var_valor_recebido'].round(2),
+        'Ação': df_merged['municipio_url']  # URLs para navegação
     })
     
     # Aplique a formatação e as cores usando o método .style do Pandas DataFrame
@@ -179,15 +206,26 @@ else:
         'Perda/Ganho (R$)': 'R$ {:+,.2f}'
     })
     
-    # Exibir tabela estilizada
+    # Exibir tabela estilizada com coluna de ação
     st.dataframe(
         styled_table,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Município": st.column_config.LinkColumn(
-                "Município",
-                help="Clique para ver a análise detalhada deste município."
+            "Ação": st.column_config.LinkColumn(
+                "Ação",
+                help="Clique para ver a análise detalhada deste município",
+                display_text="Ver"
             )
         }
     )
+
+# Copyright na barra lateral
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<div style='text-align: center; color: #888; font-size: 0.8em; margin-top: 2rem;'>"
+    "© Mais Gestor (2025)<br>"
+    "Todos os direitos reservados"
+    "</div>", 
+    unsafe_allow_html=True
+)
