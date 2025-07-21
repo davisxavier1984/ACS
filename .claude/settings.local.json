@@ -10,7 +10,10 @@
       "Bash(mv:*)",
       "Bash(mkdir:*)",
       "Bash(del test_api.py)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(\"C:\\Python-Projetos\\Alysson\\ACS\\venv_acs\\Scripts\\pip.exe\" install reportlab kaleido Pillow)",
+      "Bash(\"C:\\Python-Projetos\\Alysson\\ACS\\venv_acs\\Scripts\\python.exe\" -c \"import reportlab; import kaleido; from reportlab.lib.pagesizes import A4; print(''✅ Todas as dependências importadas com sucesso!'')\")",
+      "Bash(\"C:\\Python-Projetos\\Alysson\\ACS\\venv_acs\\Scripts\\python.exe\" -c \"import reportlab; import kaleido; from reportlab.lib.pagesizes import A4; print(''Todas as dependencias importadas com sucesso!'')\")"
     ],
     "deny": []
   }

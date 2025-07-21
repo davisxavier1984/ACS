@@ -9,6 +9,14 @@ import plotly.graph_objects as go
 import plotly.express as px
 from acs_analyzer import ACSAnalyzer
 from saude_api import SaudeApi
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.units import inch, cm
+from PIL import Image as PILImage
+import io
+import base64
 
 # Constante para cálculo de valores esperados
 VALOR_REPASSE_POR_ACS = 3036.00
@@ -39,6 +47,387 @@ def formatar_moeda_brasileira(valor: float) -> str:
         parte_decimal = partes[1] if len(partes) > 1 else "00"
         parte_inteira = parte_inteira.replace(',', '.')
         return f"R$ {parte_inteira},{parte_decimal}"
+
+def plotly_to_image(fig):
+    """
+    Converte um gráfico Plotly para PIL Image compatível com ReportLab
+    """
+    img_bytes = fig.to_image(format="png", width=800, height=400)
+    return PILImage.open(io.BytesIO(img_bytes))
+
+def gerar_pdf_municipal(municipio: str, uf: str, df_3_meses: pd.DataFrame, dados_atual: pd.Series, competencias: list) -> io.BytesIO:
+    """
+    Gera PDF PROFISSIONAL com o dashboard municipal completo
+    Qualidade corporativa "Mais Gestor" com fidelidade visual total à interface web
+    
+    Args:
+        municipio: Nome do município
+        uf: Nome do estado
+        df_3_meses: DataFrame com dados dos 3 meses
+        dados_atual: Série com dados do mês atual
+        competencias: Lista de competências analisadas
+    
+    Returns:
+        BytesIO com o PDF gerado
+    """
+    buffer = io.BytesIO()
+    width, height = A4
+    margin = 20  # Margens profissionais
+    
+    # Criar canvas com controle total
+    from reportlab.pdfgen import canvas as pdf_canvas
+    from reportlab.lib.utils import ImageReader
+    
+    c = pdf_canvas.Canvas(buffer, pagesize=A4)
+    
+    # === SEÇÃO 1: HEADER CORPORATIVO COM LOGO ===
+    header_height = 80
+    y_header = height - margin - header_height
+    
+    # Logo Mais Gestor com fundo branco (lado esquerdo)
+    try:
+        logo_path = "logo.png"
+        if os.path.exists(logo_path):
+            # Fundo branco atrás da logo
+            c.setFillColor(colors.white)
+            c.setStrokeColor(colors.lightgrey)
+            c.setLineWidth(1)
+            c.roundRect(margin, y_header + 25, 85, 55, 5, fill=True, stroke=True)
+            
+            # Logo PNG com tamanho aumentado
+            c.drawInlineImage(logo_path, margin + 2.5, y_header + 27.5, width=80, height=50, preserveAspectRatio=True)
+    except:
+        pass  # Se logo não existir, continua sem erro
+    
+    # Título corporativo (lado direito do logo)
+    c.setFont("Helvetica-Bold", 18)
+    c.setFillColor(colors.HexColor('#003366'))
+    titulo = f"Dashboard ACS - {municipio.split('/')[0]}"
+    c.drawString(margin + 100, y_header + 45, titulo)
+    
+    # Subtítulo elegante
+    c.setFont("Helvetica", 12)
+    c.setFillColor(colors.HexColor('#666666'))
+    subtitulo = f"{uf} • {competencias[-1]} a {competencias[0]} • {datetime.now().strftime('%d/%m/%Y')}"
+    c.drawString(margin + 100, y_header + 25, subtitulo)
+    
+    # Linha separadora elegante
+    c.setStrokeColor(colors.HexColor('#003366'))
+    c.setLineWidth(2)
+    c.line(margin, y_header, width - margin, y_header)
+    
+    # === SEÇÃO 2: CARDS KPI PROFISSIONAIS ===
+    kpi_y = y_header - 120
+    kpi_height = 80
+    kpi_width = (width - 2*margin - 40) / 3  # 40pt para espaçamento
+    
+    # Dados para cálculo
+    dados_anterior = df_3_meses.iloc[1] if len(df_3_meses) > 1 else None
+    valor_recebido = dados_atual['vlTotalAcs']
+    acs_pagos = dados_atual['qtTotalPago']
+    valor_esperado = dados_atual['vlEsperado']
+    
+    # Calcular deltas
+    delta_valor = valor_recebido - dados_anterior['vlTotalAcs'] if dados_anterior is not None else 0
+    delta_acs = int(acs_pagos - dados_anterior['qtTotalPago']) if dados_anterior is not None else 0
+    delta_esperado = valor_esperado - dados_anterior['vlEsperado'] if dados_anterior is not None else 0
+    
+    # Dados dos cards com cores dinâmicas
+    cards_data = [
+        {
+            'titulo': 'Valor Recebido',
+            'valor': formatar_moeda_brasileira(valor_recebido),
+            'delta': delta_valor,
+            'x_pos': margin,
+            'cor_bg': colors.HexColor('#E8F5E8') if delta_valor >= 0 else colors.HexColor('#FFEBEE'),
+            'cor_borda': colors.HexColor('#2ca02c') if delta_valor >= 0 else colors.HexColor('#D32F2F'),
+            'cor_delta': colors.HexColor('#2ca02c') if delta_valor >= 0 else colors.HexColor('#D32F2F')
+        },
+        {
+            'titulo': 'ACS Pagos',
+            'valor': f"{int(acs_pagos)}",
+            'delta': delta_acs,
+            'x_pos': margin + kpi_width + 20,
+            'cor_bg': colors.HexColor('#E3F2FD') if delta_acs >= 0 else colors.HexColor('#FFEBEE'),
+            'cor_borda': colors.HexColor('#1976D2') if delta_acs >= 0 else colors.HexColor('#D32F2F'),
+            'cor_delta': colors.HexColor('#1976D2') if delta_acs >= 0 else colors.HexColor('#D32F2F')
+        },
+        {
+            'titulo': 'Valor Esperado',
+            'valor': formatar_moeda_brasileira(valor_esperado),
+            'delta': delta_esperado,
+            'x_pos': margin + 2*kpi_width + 40,
+            'cor_bg': colors.HexColor('#FFF3E0'),
+            'cor_borda': colors.HexColor('#FF9800'),
+            'cor_delta': colors.HexColor('#E65100')
+        }
+    ]
+    
+    # Desenhar cards KPI profissionais
+    for card in cards_data:
+        x_pos = card['x_pos']
+        
+        # Card com sombra (efeito offset)
+        c.setFillColor(colors.HexColor('#DDDDDD'))
+        c.roundRect(x_pos + 2, kpi_y - 2, kpi_width, kpi_height, 8, fill=True, stroke=False)  # Sombra
+        
+        # Card principal com fundo colorido
+        c.setFillColor(card['cor_bg'])
+        c.setStrokeColor(card['cor_borda'])
+        c.setLineWidth(2)
+        c.roundRect(x_pos, kpi_y, kpi_width, kpi_height, 8, fill=True, stroke=True)
+        
+        # Título do card
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(colors.HexColor('#424242'))
+        c.drawString(x_pos + 10, kpi_y + kpi_height - 20, card['titulo'])
+        
+        # Valor principal (grande e destacado)
+        c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(colors.HexColor('#212121'))
+        c.drawString(x_pos + 10, kpi_y + kpi_height - 45, card['valor'])
+        
+        # Delta com seta
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(card['cor_delta'])
+        delta_val = card['delta']
+        
+        if 'ACS' in card['titulo']:
+            delta_str = f"+{int(delta_val)}" if delta_val >= 0 else str(int(delta_val))
+            seta = "↗" if delta_val >= 0 else "↘"
+        else:
+            delta_str = f"+{abs(delta_val)/1000:.0f}K" if delta_val >= 0 else f"-{abs(delta_val)/1000:.0f}K"
+            seta = "↗" if delta_val >= 0 else "↘"
+        
+        c.drawString(x_pos + 10, kpi_y + 12, f"{seta} {delta_str}")
+    
+    # === SEÇÃO 3: GRÁFICOS PROFISSIONAIS ===
+    graph_y = kpi_y - 220
+    graph_height_section = 200
+    
+    # Preparar dados dos gráficos
+    meses = [comp.replace('/', '/') for comp in df_3_meses['competencia'].tolist()[::-1]]
+    valores_esperados = df_3_meses['vlEsperado'].tolist()[::-1]
+    valores_recebidos = df_3_meses['vlTotalAcs'].tolist()[::-1]
+    acs_credenciados = df_3_meses['qtTotalCredenciado'].tolist()[::-1]
+    acs_pagos_lista = df_3_meses['qtTotalPago'].tolist()[::-1]
+    
+    # Gráfico Financeiro
+    fig_financeiro = go.Figure()
+    fig_financeiro.add_trace(go.Bar(
+        name='Valor Esperado',
+        x=meses,
+        y=valores_esperados,
+        marker_color='#003366',
+        text=[f'{v/1000:.0f}K' for v in valores_esperados],
+        textposition='auto',
+        textfont={'size': 10, 'color': 'white'}
+    ))
+    fig_financeiro.add_trace(go.Bar(
+        name='Valor Recebido',
+        x=meses,
+        y=valores_recebidos,
+        marker_color='#2ca02c',
+        text=[f'{v/1000:.0f}K' for v in valores_recebidos],
+        textposition='auto',
+        textfont={'size': 10, 'color': 'white'}
+    ))
+    
+    fig_financeiro.update_layout(
+        title={'text': '💰 Análise Financeira', 'font': {'size': 14, 'color': '#003366'}, 'x': 0.5},
+        xaxis={'tickfont': {'size': 10}},
+        yaxis={'tickfont': {'size': 10}},
+        barmode='group',
+        height=graph_height_section,
+        width=int((width - 2*margin - 15) / 2),
+        showlegend=True,
+        legend={'font': {'size': 10}, 'orientation': 'h', 'y': 1.15, 'x': 0.5, 'xanchor': 'center'},
+        plot_bgcolor='white',
+        paper_bgcolor='white'
+    )
+    
+    # Gráfico de Pessoal
+    fig_pessoal = go.Figure()
+    fig_pessoal.add_trace(go.Bar(
+        name='ACS Credenciados',
+        x=meses,
+        y=acs_credenciados,
+        marker_color='#8c8c8c',
+        text=acs_credenciados,
+        textposition='auto',
+        textfont={'size': 10, 'color': 'white'}
+    ))
+    fig_pessoal.add_trace(go.Bar(
+        name='ACS Pagos',
+        x=meses,
+        y=acs_pagos_lista,
+        marker_color='#ff7f0e',
+        text=acs_pagos_lista,
+        textposition='auto',
+        textfont={'size': 10, 'color': 'white'}
+    ))
+    
+    fig_pessoal.update_layout(
+        title={'text': '👥 Análise de Pessoal', 'font': {'size': 14, 'color': '#003366'}, 'x': 0.5},
+        xaxis={'tickfont': {'size': 10}},
+        yaxis={'tickfont': {'size': 10}},
+        barmode='group',
+        height=graph_height_section,
+        width=int((width - 2*margin - 15) / 2),
+        showlegend=True,
+        legend={'font': {'size': 10}, 'orientation': 'h', 'y': 1.15, 'x': 0.5, 'xanchor': 'center'},
+        plot_bgcolor='white',
+        paper_bgcolor='white'
+    )
+    
+    # Adicionar gráficos ao PDF
+    img_financeiro = plotly_to_image(fig_financeiro)
+    img_pessoal = plotly_to_image(fig_pessoal)
+    
+    graph_width = (width - 2*margin - 15) / 2
+    c.drawInlineImage(img_financeiro, margin, graph_y, width=graph_width, height=graph_height_section)
+    c.drawInlineImage(img_pessoal, margin + graph_width + 15, graph_y, width=graph_width, height=graph_height_section)
+    
+    # === SEÇÃO 4: TABELA PROFISSIONAL ===
+    table_y = graph_y - 160
+    table_height_section = 120
+    
+    # Título da seção
+    c.setFont("Helvetica-Bold", 14)
+    c.setFillColor(colors.HexColor('#003366'))
+    c.drawString(margin, table_y + table_height_section - 15, "📊 Resumo Mensal Detalhado")
+    
+    # Configurar tabela
+    row_height = 20
+    col_widths = [80, 100, 90, 70, 70]
+    headers = ['Competência', 'Valor Recebido', 'Variação', 'ACS Pagos', 'Var. ACS']
+    
+    # Calcular posição central da tabela
+    table_width = sum(col_widths)
+    table_x = (width - table_width) / 2  # Centralizar na página
+    
+    # Header da tabela (azul corporativo)
+    header_y = table_y + table_height_section - 45
+    c.setFillColor(colors.HexColor('#003366'))
+    c.rect(table_x, header_y, table_width, row_height, fill=True, stroke=False)
+    
+    # Texto do header (branco)
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(colors.white)
+    x_pos = table_x + 5
+    for i, header in enumerate(headers):
+        c.drawString(x_pos, header_y + 6, header)
+        x_pos += col_widths[i]
+    
+    # Dados da tabela com zebra striping
+    c.setFont("Helvetica", 9)
+    for i, (idx, row) in enumerate(df_3_meses.iterrows()):
+        y_row = header_y - (i + 1) * row_height
+        
+        # Zebra striping (linhas alternadas)
+        if i % 2 == 1:
+            c.setFillColor(colors.HexColor('#F5F5F5'))
+            c.rect(table_x, y_row, table_width, row_height, fill=True, stroke=False)
+        
+        # Calcular variações
+        mes_anterior = None
+        idx_atual = df_3_meses.index.get_loc(idx)
+        if idx_atual < len(df_3_meses) - 1:
+            mes_anterior = df_3_meses.iloc[idx_atual + 1]
+        
+        var_valor = row['vlTotalAcs'] - mes_anterior['vlTotalAcs'] if mes_anterior is not None else 0
+        var_acs = row['qtTotalPago'] - mes_anterior['qtTotalPago'] if mes_anterior is not None else 0
+        
+        # Dados da linha
+        dados_linha = [
+            row['competencia'],
+            formatar_moeda_brasileira(row['vlTotalAcs']),
+            formatar_moeda_brasileira(var_valor) if var_valor >= 0 else f"-{formatar_moeda_brasileira(abs(var_valor))}" if var_valor != 0 else "—",
+            f"{int(row['qtTotalPago'])}",
+            f"{int(var_acs):+d}" if var_acs != 0 else "—"
+        ]
+        
+        # Desenhar dados com cores condicionais
+        x_pos = table_x + 5
+        for j, dado in enumerate(dados_linha):
+            # Colorir variações condicionalmente
+            if j == 2 and dado != "—":  # Variação valor
+                if dado.startswith('+'):
+                    c.setFillColor(colors.HexColor('#2E7D32'))  # Verde escuro
+                else:
+                    c.setFillColor(colors.HexColor('#C62828'))  # Vermelho escuro
+            elif j == 4 and dado != "—":  # Variação ACS
+                if dado.startswith('+'):
+                    c.setFillColor(colors.HexColor('#2E7D32'))  # Verde escuro
+                else:
+                    c.setFillColor(colors.HexColor('#C62828'))  # Vermelho escuro
+            else:
+                c.setFillColor(colors.HexColor('#212121'))  # Preto
+            
+            c.drawString(x_pos, y_row + 6, dado)
+            x_pos += col_widths[j]
+    
+    # === SEÇÃO 5: STATUS REGULAMENTAR ===
+    status_y = table_y - 80
+    variacao_mensal = calcular_variacao_mensal(dados_atual, df_3_meses)
+    
+    if variacao_mensal < 0:
+        # Card de alerta vermelho expandido
+        card_height = 85
+        c.setFillColor(colors.HexColor('#FFEBEE'))
+        c.setStrokeColor(colors.HexColor('#D32F2F'))
+        c.setLineWidth(2)
+        c.roundRect(margin, status_y, width - 2*margin, card_height, 5, fill=True, stroke=True)
+        
+        # Título do alerta
+        c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.HexColor('#D32F2F'))
+        c.drawString(margin + 10, status_y + card_height - 18, "🚨 ALERTA REGULAMENTAR")
+        
+        # Portaria
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(colors.HexColor('#424242'))
+        c.drawString(margin + 10, status_y + card_height - 35, "Portaria GM/MS Nº 6.907, de 29 de abril de 2025")
+        
+        # Motivo da suspensão (quebra após "produção")
+        c.setFont("Helvetica", 10)
+        c.setFillColor(colors.HexColor('#424242'))
+        c.drawString(margin + 10, status_y + card_height - 50, "Motivo: Observadas 6 (seis) competências consecutivas de ausência de envio de informação sobre a produção")
+        c.drawString(margin + 10, status_y + card_height - 62, "ao SISAB - Suspensão do recurso ACS")
+        
+        # Perda financeira
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.HexColor('#D32F2F'))
+        c.drawString(margin + 10, status_y + 10, f"PERDA APROXIMADA: {formatar_moeda_brasileira(abs(variacao_mensal))}/MÊS")
+    else:
+        # Card de conformidade verde
+        c.setFillColor(colors.HexColor('#E8F5E8'))
+        c.setStrokeColor(colors.HexColor('#2ca02c'))
+        c.setLineWidth(2)
+        c.roundRect(margin, status_y, width - 2*margin, 40, 5, fill=True, stroke=True)
+        
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(colors.HexColor('#2ca02c'))
+        c.drawString(margin + 10, status_y + 20, "✅ Município em conformidade regulamentar")
+    
+    # === FOOTER CORPORATIVO ===
+    footer_y = 40
+    
+    # Linha separadora
+    c.setStrokeColor(colors.HexColor('#DDDDDD'))
+    c.setLineWidth(1)
+    c.line(margin, footer_y + 25, width - margin, footer_y + 25)
+    
+    # Texto do footer
+    c.setFont("Helvetica", 8)
+    c.setFillColor(colors.HexColor('#666666'))
+    c.drawString(margin, footer_y + 15, "© 2025 Mais Gestor - Sistema ACS | Relatório gerado automaticamente")
+    c.drawString(margin, footer_y + 5, f"Fonte: Ministério da Saúde • Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}")
+    
+    # Finalizar PDF
+    c.save()
+    buffer.seek(0)
+    return buffer
 
 # Ler parâmetros da URL para drill-down
 query_params = st.query_params
@@ -567,6 +956,45 @@ if ((uf_param and municipio_ibge_param) or analisar_manualmente) and codigo_uf a
             render_suspension_status_card(dados_atual, df_3_meses, municipio_selecionado)
         else:
             st.success("✅ Município em conformidade com as normas regulamentares vigentes")
+        
+        # === BOTÃO PARA GERAR PDF ===
+        st.markdown("---")
+        st.subheader("📄 Exportar Relatório")
+        
+        col_pdf1, col_pdf2, col_pdf3 = st.columns([2, 1, 2])
+        with col_pdf2:
+            if st.button("📄 Gerar PDF", type="secondary", use_container_width=True):
+                with st.spinner("Gerando PDF do relatório..."):
+                    try:
+                        # Gerar nome do arquivo
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        municipio_limpo = municipio_selecionado.split('/')[0].replace(' ', '_')
+                        nome_arquivo = f"Relatorio_ACS_{municipio_limpo}_{timestamp}.pdf"
+                        
+                        # Gerar PDF
+                        pdf_buffer = gerar_pdf_municipal(
+                            municipio_selecionado, 
+                            uf_selecionada, 
+                            df_3_meses, 
+                            dados_atual, 
+                            competencias_desejadas
+                        )
+                        
+                        # Botão de download
+                        st.download_button(
+                            label="⬇️ Download PDF",
+                            data=pdf_buffer.getvalue(),
+                            file_name=nome_arquivo,
+                            mime="application/pdf",
+                            type="primary",
+                            use_container_width=True
+                        )
+                        
+                        st.success("✅ PDF gerado com sucesso! Clique em 'Download PDF' para baixar.")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Erro ao gerar PDF: {str(e)}")
+                        st.warning("Verifique se todas as dependências estão instaladas: `pip install reportlab kaleido Pillow`")
         
     else:
         st.error("❌ Nenhum dado foi encontrado para o município e período selecionados.")
