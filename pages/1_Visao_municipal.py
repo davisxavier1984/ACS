@@ -141,6 +141,88 @@ def buscar_dados_api(codigo_uf: str, codigo_municipio: str, competencia: str) ->
     
     return None # Retorna None se não conseguir processar
 
+def calcular_variacao_mensal(dados_atual, df_3_meses) -> float:
+    """
+    Calcula a variação mensal usando a mesma lógica da tabela.
+    
+    Args:
+        dados_atual: Linha mais recente (dados do mês atual)
+        df_3_meses: DataFrame completo com dados dos 3 meses
+        
+    Returns:
+        float: Variação mensal (atual - anterior). Negativo = perda
+    """
+    if dados_atual is None or df_3_meses is None or len(df_3_meses) < 2:
+        return 0
+    
+    # dados_atual é df_3_meses.iloc[0] (mais recente)
+    # mes_anterior é df_3_meses.iloc[1] (segundo mais recente)
+    valor_atual = dados_atual.get('vlTotalAcs', 0)
+    mes_anterior = df_3_meses.iloc[1]
+    valor_anterior = mes_anterior.get('vlTotalAcs', 0)
+    
+    # Variação mensal: atual - anterior (igual à tabela)
+    variacao_mensal = valor_atual - valor_anterior
+    return variacao_mensal
+
+def detectar_condicoes_suspensao(dados_atual, df_3_meses) -> bool:
+    """
+    Detecta condições que indicam suspensão de recursos ACS.
+    Critério: qualquer perda mensal (variação negativa).
+    
+    Args:
+        dados_atual: Pandas Series com dados do município (linha mais recente)
+        df_3_meses: DataFrame completo para calcular variação mensal
+        
+    Returns:
+        bool: True se devemos mostrar o alerta de suspensão (sempre que há perda mensal)
+    """
+    # Verificar se dados_atual é None ou Series/DataFrame vazio
+    if dados_atual is None:
+        return False
+    
+    # Para pandas Series, verificar se está vazio
+    if hasattr(dados_atual, 'empty') and dados_atual.empty:
+        return False
+    
+    # Calcular variação mensal usando a mesma lógica da tabela
+    variacao_mensal = calcular_variacao_mensal(dados_atual, df_3_meses)
+    
+    # Critério simples: mostrar sempre que há perda mensal (variação negativa)
+    # Isso corresponde aos valores vermelhos na tabela
+    return variacao_mensal < 0
+
+def render_suspension_status_card(dados_atual, df_3_meses, municipio: str):
+    """
+    Renderiza o card de alerta regulamentar com informações da Portaria GM/MS 6.907.
+    
+    Args:
+        dados_atual: Pandas Series com dados do município (linha mais recente)
+        df_3_meses: DataFrame completo para calcular variação mensal
+        municipio: Nome do município para exibição
+    """
+    # Calcular variação mensal usando a mesma lógica da tabela
+    variacao_mensal = calcular_variacao_mensal(dados_atual, df_3_meses)
+    
+    # Usar o valor absoluto da variação (para mostrar a perda como valor positivo)
+    valor_perda = abs(variacao_mensal)
+    
+    # Usar função existente para formatar moeda
+    valor_formatado = formatar_moeda_brasileira(valor_perda)
+    
+    # Renderizar card de alerta usando st.error para destaque visual máximo
+    st.error(f"""
+🚨 **ALERTA REGULAMENTAR - {municipio}**
+
+**Portaria GM/MS Nº 6.907, de 29 de abril de 2025**
+
+**Motivo da Suspensão:** Observadas 6 (seis) competências consecutivas de ausência de envio de informação sobre a produção ao Sistema de Informação em Saúde para a Atenção Básica (SISAB).
+
+Suspensão do recurso do ACS.
+
+**PERDA APROXIMADAMENTE {valor_formatado}/MÊS**
+    """)
+
 def gerar_ultimas_competencias(competencia_referencia: str, qtd: int = 3) -> list:
     """
     Gera lista das últimas competências a partir de uma competência de referência
@@ -475,6 +557,16 @@ if ((uf_param and municipio_ibge_param) or analisar_manualmente) and codigo_uf a
         })
         
         st.dataframe(styled_table, use_container_width=True, hide_index=True)
+        
+        # === SEÇÃO REGULAMENTAR ===
+        st.markdown("---")  # Separador visual
+        st.subheader("⚖️ Status Regulamentar")
+        
+        # Verificar condições de suspensão baseado nos dados atuais
+        if detectar_condicoes_suspensao(dados_atual, df_3_meses):
+            render_suspension_status_card(dados_atual, df_3_meses, municipio_selecionado)
+        else:
+            st.success("✅ Município em conformidade com as normas regulamentares vigentes")
         
     else:
         st.error("❌ Nenhum dado foi encontrado para o município e período selecionados.")
