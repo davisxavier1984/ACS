@@ -266,6 +266,27 @@ Suspensão do recurso do ACS.
 **PERDA APROXIMADAMENTE {valor_formatado}/MÊS**
     """)
 
+def gerar_lista_competencias_disponiveis(qtd_meses: int = 12) -> list:
+    """
+    Gera lista de competências disponíveis dinamicamente a partir do mês atual.
+
+    Args:
+        qtd_meses: Quantidade de meses para listar (padrão: 12)
+
+    Returns:
+        Lista de competências no formato "AAAA/MM" em ordem decrescente
+    """
+    competencias = []
+    data_atual = datetime.now()
+
+    for i in range(qtd_meses):
+        data_comp = data_atual - relativedelta(months=i)
+        comp_str = f"{data_comp.year}/{data_comp.month:02d}"
+        competencias.append(comp_str)
+
+    return competencias
+
+
 def gerar_ultimas_competencias(competencia_referencia: str, qtd: int = 3) -> list:
     """
     Gera lista das últimas competências a partir de uma competência de referência
@@ -359,12 +380,12 @@ with col1:
 
 with col2:
     st.subheader("📅 Período de Análise")
-    
-    # Competência de referência
+
+    # Competência de referência (gerada dinamicamente)
+    competencias_disponiveis = gerar_lista_competencias_disponiveis(24)  # Últimos 24 meses
     competencia_referencia = st.selectbox(
         "Competência de Referência:",
-        ["2025/07", "2025/06", "2025/05", "2025/04", "2025/03", "2025/02", "2025/01",
-         "2024/12", "2024/11", "2024/10", "2024/09", "2024/08", "2024/07"]
+        competencias_disponiveis
     )
     
     # Botão de análise

@@ -111,24 +111,25 @@ def validar_competencias(competencias_str: str) -> List[str]:
     """Valida e normaliza lista de competências no formato AAAA/MM"""
     competencias = [comp.strip() for comp in competencias_str.split(',')]
     competencias_validas = []
-    
+
     padrao_competencia = re.compile(r'^\d{4}/(0[1-9]|1[0-2])$')
-    
+    ano_atual = datetime.now().year
+
     for comp in competencias:
         if not padrao_competencia.match(comp):
             raise argparse.ArgumentTypeError(
                 f"Competência '{comp}' inválida. Use formato AAAA/MM (ex: 2024/01)"
             )
-        
+
         ano, mes = comp.split('/')
         ano_int = int(ano)
-        if ano_int < 2020 or ano_int > 2025:
+        if ano_int < 2020 or ano_int > ano_atual:
             raise argparse.ArgumentTypeError(
-                f"Ano {ano_int} fora do intervalo válido (2020-2025)"
+                f"Ano {ano_int} fora do intervalo válido (2020-{ano_atual})"
             )
-        
+
         competencias_validas.append(comp)
-    
+
     return competencias_validas
 
 
