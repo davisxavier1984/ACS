@@ -18,7 +18,14 @@
       "Bash(grep:*)",
       "Bash(xargs:*)",
       "Bash(wc:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(poetry --version:*)",
+      "Bash(poetry run python:*)",
+      "Bash(ls:*)",
+      "Bash(./venv_acs/bin/python:*)",
+      "Bash(./venv_linux/bin/pip install:*)",
+      "Bash(./venv_linux/bin/python:*)",
+      "Bash(tail:*)"
     ],
     "deny": []
   }
