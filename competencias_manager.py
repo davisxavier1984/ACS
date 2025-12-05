@@ -44,17 +44,58 @@ class CompetenciasManager:
             'sec-ch-ua-platform': '"Windows"'
         }
     
-    def get_competencias_disponiveis(self, ano: int = 2025) -> List[str]:
-        """Retorna lista de competências disponíveis para um ano"""
+    def get_competencias_disponiveis(self, ano: int = None) -> List[str]:
+        """
+        Retorna lista de competências disponíveis para um ano.
+        Consulta a API para descobrir as parcelas disponíveis dinamicamente.
+
+        Args:
+            ano: Ano para consulta. Se None, usa o ano atual.
+
+        Returns:
+            Lista de competências no formato AAAAMM (ex: ['202501', '202502', ...])
+        """
+        if ano is None:
+            ano = datetime.now().year
+
+        # Tenta consultar a API para descobrir as parcelas disponíveis
+        try:
+            response = requests.get(
+                f"{self.base_url}/data/parcelas",
+                params={"ano": ano},
+                headers=self.headers,
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                parcelas = response.json()
+                if isinstance(parcelas, list) and parcelas:
+                    # Extrai os meses disponíveis das parcelas retornadas
+                    competencias = []
+                    for parcela in parcelas:
+                        # A API pode retornar no formato AAAAMM ou como objeto com nuParcela
+                        if isinstance(parcela, dict):
+                            nu_parcela = parcela.get('nuParcela', parcela.get('parcela', ''))
+                            if nu_parcela:
+                                competencias.append(str(nu_parcela))
+                        elif isinstance(parcela, (int, str)):
+                            competencias.append(str(parcela))
+
+                    if competencias:
+                        return sorted(competencias)
+        except Exception as e:
+            # Em caso de erro, usa fallback
+            pass
+
+        # Fallback: gera todas as competências até o mês atual (para o ano atual)
+        # ou todas as 12 competências para anos anteriores
         competencias = []
-        for mes in range(1, 13):  # Janeiro a Dezembro
+        mes_limite = datetime.now().month if ano == datetime.now().year else 12
+
+        for mes in range(1, mes_limite + 1):
             competencia = f"{ano}{mes:02d}"
             competencias.append(competencia)
-        
-        # Para 2025, limita até julho (conforme dados conhecidos)
-        if ano == 2025:
-            competencias = competencias[:7]  # Jan-Jul
-        
+
         return competencias
     
     def consultar_competencia(self, codigo_uf: str, codigo_municipio: str, 

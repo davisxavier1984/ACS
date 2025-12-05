@@ -2,6 +2,7 @@ import requests
 import streamlit as st
 import time
 import logging
+from datetime import datetime
 from typing import List, Dict, Optional
 
 class SaudeApi:
@@ -98,10 +99,11 @@ class SaudeApi:
     @staticmethod
     def get_anos_disponiveis() -> List[int]:
         """
-        Obtém lista de anos disponíveis (lista local - API /anos não existe)
-        Baseado no orienta.txt - apenas /data/parcelas?ano=X existe
+        Obtém lista de anos disponíveis dinamicamente.
+        Retorna do ano atual até 2020 (ano inicial dos dados).
         """
-        return [2025, 2024, 2023, 2022, 2021, 2020]
+        ano_atual = datetime.now().year
+        return list(range(ano_atual, 2019, -1))  # Do ano atual até 2020
     
     @staticmethod
     @st.cache_data

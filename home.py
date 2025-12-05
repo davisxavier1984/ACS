@@ -100,7 +100,7 @@ with st.expander("ℹ️ Sobre os Dados ACS"):
     5. **📉 Perda de Repasse Federal** - Diferença entre esperado e recebido
     
     **🗓️ Períodos Disponíveis:**
-    - 2020 a 2025 (Jan-Jul para 2025)
+    - 2020 até o ano atual (competências disponíveis consultadas em tempo real)
     - Dados mensais por competência (AAAA/MM)
     
     **🏛️ Fonte dos Dados:**

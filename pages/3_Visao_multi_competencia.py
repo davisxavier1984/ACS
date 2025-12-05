@@ -246,13 +246,17 @@ def create_financial_chart(metrics: ACSMetrics):
     
     return fig
 
-def consultar_multiplas_competencias(codigo_uf: str, codigo_municipio: str):
+def consultar_multiplas_competencias(codigo_uf: str, codigo_municipio: str, ano: int = None):
     """Consulta múltiplas competências e retorna dados consolidados"""
-    
+    from datetime import datetime
+
+    if ano is None:
+        ano = datetime.now().year
+
     manager = CompetenciasManager()
-    competencias = manager.get_competencias_disponiveis(2025)
-    
-    st.info(f"🔍 Consultando {len(competencias)} competências para obter relatório completo...")
+    competencias = manager.get_competencias_disponiveis(ano)
+
+    st.info(f"🔍 Consultando {len(competencias)} competências de {ano} para obter relatório completo...")
     
     # Progress bar
     progress_bar = st.progress(0)
@@ -343,12 +347,17 @@ def main():
         st.error("Não foi possível carregar a lista de UFs. Verifique sua conexão.")
         return
     
-    # Seleção da UF
-    col1, col2 = st.columns(2)
-    
+    # Seleção da UF e Ano
+    col1, col2, col3 = st.columns([2, 2, 1])
+
     with col1:
         uf_options = ["Selecione um estado..."] + [SaudeApi.formatar_uf_para_dropdown(uf) for uf in ufs]
         uf_selecionada = st.selectbox("🗺️ Estado (UF)", uf_options)
+
+    # Seleção do ano (dinâmico)
+    anos_disponiveis = SaudeApi.get_anos_disponiveis()
+    with col3:
+        ano_selecionado = st.selectbox("📅 Ano", anos_disponiveis)
     
     municipio_selecionado = None
     codigo_uf = None
@@ -375,9 +384,9 @@ def main():
         st.success(f"✅ Configurado: {uf_selecionada} → {municipio_selecionado}")
         
         if st.button("🚀 Gerar Relatório Completo de ACS", type="primary", use_container_width=True):
-            
-            # Consulta múltiplas competências
-            dados_consolidados, metricas_temporais, resultados = consultar_multiplas_competencias(codigo_uf, codigo_municipio)
+
+            # Consulta múltiplas competências para o ano selecionado
+            dados_consolidados, metricas_temporais, resultados = consultar_multiplas_competencias(codigo_uf, codigo_municipio, ano_selecionado)
             
             if metricas_temporais:
                 st.markdown("---")
@@ -385,7 +394,7 @@ def main():
                 # Usa a primeira métrica para o cabeçalho
                 primeira_metrica = metricas_temporais[0]
                 st.header(f"📊 {municipio_selecionado} - {uf_selecionada.split(' - ')[0]}")
-                st.caption(f"Relatório gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')} | {len(metricas_temporais)} competências analisadas")
+                st.caption(f"Relatório gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')} | Ano: {ano_selecionado} | {len(metricas_temporais)} competências analisadas")
                 
                 # Cria métricas consolidadas (média/última competência)
                 ultima_competencia = metricas_temporais[-1]
@@ -501,8 +510,8 @@ def main():
         
         with st.expander("ℹ️ Sobre o Relatório Multi-Competência"):
             st.markdown("""
-            Este relatório consulta **automaticamente todas as competências disponíveis** (Jan-Jul 2025) 
-            para fornecer uma análise temporal completa dos Agentes Comunitários de Saúde.
+            Este relatório consulta **automaticamente todas as competências disponíveis** para o ano selecionado,
+            fornecendo uma análise temporal completa dos Agentes Comunitários de Saúde.
             
             **📊 As 5 Métricas Principais:**
             1. **✅ ACS Credenciados** - Total de ACS habilitados (direto + indireto)
